@@ -1,0 +1,49 @@
+// app-tail fleet profile
+//
+// Apply this on any node with:  app-tail provision --profile fleet-profile.json
+// Re-running it is a no-op, so it is safe to ship in an image or a config-management
+// run. Comments and trailing commas are allowed (HuJSON); they are stripped on load.
+//
+// Every node in a fleet shares these settings and comes up running these forwards.
+// Targets use MagicDNS names so one profile resolves correctly on every node.
+{
+  "settings": {
+    // {hostname} is the machine's own name and {id} its stable per-install id, so
+    // fleet members stay distinguishable in the Tailscale admin console.
+    "hostnameTemplate": "app-tail-{hostname}-{id}",
+
+    // The group every fleet node joins. Grant ACL rules can then target the whole
+    // fleet by tag instead of listing devices. The OAuth client below must be
+    // allowed to mint keys for this tag in tagOwners.
+    "tags": ["tag:app-tail"],
+
+    // Path the node reads its OAuth client secret from at auth time. Keep the secret
+    // in a secrets manager or a root-only file; never inline it in a shipped profile.
+    "oauthClientSecretFile": "/run/secrets/app-tail-oauth",
+
+    // Leave the device record in place across restarts so its identity is stable.
+    "ephemeral": false
+  },
+
+  "forwards": [
+    // Reach a shared tailnet service from a fixed local port on every node. The
+    // target is a MagicDNS name, so it follows the service even if its IP changes.
+    {
+      "name": "Internal registry",
+      "direction": "to_local",
+      "protocol": "tcp",
+      "listenPort": 5000,
+      "target": "registry.tailnet-name.ts.net:5000"
+    },
+
+    // Expose this node's local SSH to the tailnet, subject to your ACLs. It listens
+    // on the node's tailnet IP at this port and relays to sshd on loopback.
+    {
+      "name": "Local SSH",
+      "direction": "to_tailnet",
+      "protocol": "tcp",
+      "listenPort": 22,
+      "target": "127.0.0.1:22"
+    }
+  ]
+}

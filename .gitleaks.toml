@@ -1,0 +1,41 @@
+# Gitleaks' full ruleset plus one allowlist. Never narrow the default rules here --
+# this file exists to remove a false positive, not to quiet a real finding.
+[extend]
+useDefault = true
+
+# A Go module checksum is a public dirhash published in sum.golang.org, not a
+# credential, but it is a 44-character base64 blob and the generic-api-key rule reads
+# any such blob near a keyword as a secret -- `golang.org/x/oauth2` supplies the
+# keyword. These lines appear in go.sum and in the `go version -m` dependency manifest
+# release.sh ships beside every binary, so the match is matched on the `h1:` marker
+# rather than on the blob alone.
+[[allowlists]]
+description = "Go module dirhash (h1:) lines"
+regexTarget = "line"
+regexes = ['''h1:[A-Za-z0-9+/]{43}=''']
+
+# The one byte pattern the traffic-inspection tests and the setting's own help text are
+# written around. It is what a user watching for a leak of their own value would type, so it
+# is deliberately shaped like the thing it stands in for -- which is exactly why the
+# generic-api-key rule reads it as one. It unlocks nothing: no service has ever held it. It is
+# listed by its exact value, so any other value written the same way is still a finding.
+[[allowlists]]
+description = "The signature example the inspection tests are written around"
+regexes = ['''hunter2-9f3a1c''']
+
+# WireGuard keys are 32 random bytes in base64, which is the same shape as a credential
+# and is read as one. These were generated for the test suite and unlock nothing:
+# there is no server that holds them and no network they reach. They are listed by their
+# exact value rather than by the files they appear in, so a key that is not one of these
+# is still a finding wherever it is written. Each is a regular expression, so the `+` a
+# base64 key can carry is escaped: unescaped it is a quantifier, and the entry then matches
+# nothing at all.
+[[allowlists]]
+description = "WireGuard test-fixture keys"
+regexes = [
+  '''aBhtG18wo5eIJXAkl7L4L3RyKNwzZuBAK1zSHnRRRXc=''',
+  '''vGKFmWU/gzcgTHFI9DMBGaGqjRWTKJhCXV/2NAB6dHM=''',
+  '''Ry0M2rNVGGQrrmJKKIY0F0EySFf9r0mAJvpDCkzQeGE=''',
+  '''majYatxGzfGESWHzcaf6Y\+ldZ1CHNgfXsieg\+falAgw=''',
+  '''aFmZ0lLwtoAJRe6dpBqp1TXKPmMKMBkgPMhO\+iqLbXM=''',
+]

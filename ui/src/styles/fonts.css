@@ -1,0 +1,29 @@
+/* The two typefaces ship inside the bundle: the page's CSP allows no font host but the
+   agent itself, and a dashboard on a machine with no internet is the normal case. The
+   URLs are relative so Vite hashes the files and rewrites them for the relative base.
+   Inter is one variable file carrying every weight; the mono face ships the two weights
+   the sheets use. */
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('../assets/fonts/InterVariable.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../assets/fonts/JetBrainsMono-Regular.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('../assets/fonts/JetBrainsMono-Medium.woff2') format('woff2');
+}

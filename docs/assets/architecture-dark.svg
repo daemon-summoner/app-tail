@@ -1,0 +1,137 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640" role="img" aria-labelledby="title desc">
+  <title id="title">How app-tail fits together</title>
+  <desc id="desc">Programs on this machine reach app-tail through port forwards, a proxy or a network interface. The agent resolves names, filters threats and picks a route, then carries traffic over Tailscale, WireGuard or OpenVPN connections. The dashboard, CLI and tray talk to it over a token-locked loopback API, and a caller-verified root helper makes the few changes that need administrator rights.</desc>
+  <style>
+    :root {
+      --bg-a: #04060c;
+      --bg-b: #0b1324;
+      --grid: #38bdf8;
+      --grid-alpha: 0.06;
+      --text: #e6edf7;
+      --muted: #8b9ab3;
+      --accent: #22d3ee;
+      --accent-2: #a78bfa;
+      --ok: #34d399;
+      --box: #0c1628;
+      --box-line: #1e3352;
+      --root: #1a1408;
+      --root-line: #f59e0b;
+      --warn: #fbbf24;
+    }
+    .bg-a { stop-color: var(--bg-a); }
+    .bg-b { stop-color: var(--bg-b); }
+    .grid { stroke: var(--grid); stroke-opacity: var(--grid-alpha); }
+    .mono { font-family: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace; }
+    .sans { font-family: Inter, "SF Pro Display", -apple-system, "Segoe UI", system-ui, sans-serif; }
+    .eyebrow { fill: var(--accent); font-size: 13px; letter-spacing: 4px; }
+    .heading { fill: var(--text); font-size: 30px; font-weight: 700; }
+    .col { fill: var(--muted); font-size: 12px; letter-spacing: 3px; }
+    .box { fill: var(--box); stroke: var(--box-line); }
+    .box.entry { stroke: var(--accent); stroke-opacity: 0.55; }
+    .box.net { stroke: var(--accent-2); stroke-opacity: 0.6; }
+    .core { fill: var(--box); stroke: var(--accent); stroke-width: 2; }
+    .pill { fill: var(--bg-a); stroke: var(--box-line); }
+    .root { fill: var(--root); stroke: var(--root-line); stroke-dasharray: 6 5; stroke-width: 1.5; }
+    .t { fill: var(--text); font-size: 16px; font-weight: 700; }
+    .t-core { fill: var(--text); font-size: 20px; font-weight: 800; }
+    .s { fill: var(--muted); font-size: 12px; }
+    .p { fill: var(--text); font-size: 13.5px; }
+    .r { fill: var(--warn); font-size: 12px; letter-spacing: 3px; }
+    .wire { stroke: var(--accent); stroke-opacity: 0.25; stroke-width: 1.5; fill: none; }
+    .flow { stroke: var(--accent); stroke-width: 2.5; fill: none; stroke-linecap: round; stroke-dasharray: 1 11; animation: flow 1.3s linear infinite; }
+    .flow.out { stroke: var(--accent-2); }
+    .flow.ctl { stroke: var(--ok); animation-duration: 2s; }
+    .flow.priv { stroke: var(--root-line); animation-duration: 2.2s; }
+    .shield { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; }
+    .lock { fill: none; stroke: var(--root-line); stroke-width: 2; stroke-linecap: round; }
+    @keyframes flow { to { stroke-dashoffset: -24; } }
+    @media (prefers-reduced-motion: reduce) { .flow { animation: none; } }
+  </style>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" class="bg-a"/>
+      <stop offset="1" class="bg-b"/>
+    </linearGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" class="grid" fill="none" stroke-width="1"/>
+    </pattern>
+    <clipPath id="frame">
+      <rect width="1280" height="640" rx="20"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#frame)">
+    <rect width="1280" height="640" fill="url(#bg)"/>
+    <rect width="1280" height="640" fill="url(#grid)"/>
+
+    <text class="mono eyebrow" x="40" y="58">ARCHITECTURE</text>
+    <text class="sans heading" x="40" y="96">One agent between your programs and your networks.</text>
+
+    <text class="mono col" x="40" y="150">YOUR PROGRAMS</text>
+    <text class="mono col" x="290" y="150">HOW THEY GET IN</text>
+    <text class="mono col" x="600" y="150">THE AGENT</text>
+    <text class="mono col" x="950" y="150">CONNECTIONS</text>
+
+    <path class="wire" d="M240 220 H290 M240 330 H290 M240 440 H290"/>
+    <path class="wire" d="M550 220 H600 M550 330 H600 M550 440 H600"/>
+    <path class="wire" d="M900 220 H950 M900 330 H950 M900 440 H950"/>
+    <path class="flow" d="M242 220 H288 M242 330 H288 M242 440 H288"/>
+    <path class="flow" d="M552 220 H598 M552 330 H598 M552 440 H598"/>
+    <path class="flow out" d="M902 220 H948 M902 330 H948 M902 440 H948"/>
+
+    <g class="sans">
+      <rect class="box" x="40" y="188" width="200" height="64" rx="12"/>
+      <text class="t" x="60" y="226">Browser</text>
+      <rect class="box" x="40" y="298" width="200" height="64" rx="12"/>
+      <text class="t" x="60" y="336">Terminal, SSH</text>
+      <rect class="box" x="40" y="408" width="200" height="64" rx="12"/>
+      <text class="t" x="60" y="446">Any other app</text>
+
+      <rect class="box entry" x="290" y="180" width="260" height="80" rx="12"/>
+      <text class="t" x="308" y="214">Port forwards</text>
+      <text class="mono s" x="308" y="238">127.0.0.1:18100 → one service</text>
+      <rect class="box entry" x="290" y="290" width="260" height="80" rx="12"/>
+      <text class="t" x="308" y="324">Proxy</text>
+      <text class="mono s" x="308" y="348">SOCKS5 + HTTP · PAC file</text>
+      <rect class="box entry" x="290" y="400" width="260" height="80" rx="12"/>
+      <text class="t" x="308" y="434">Network interface</text>
+      <text class="mono s" x="308" y="458">tun or fabric · every program</text>
+
+      <rect class="core" x="600" y="168" width="300" height="324" rx="16"/>
+      <path class="shield" d="M630,188 L646,194 L646,206 C646,215 639,221 630,224 C621,221 614,215 614,206 L614,194 Z"/>
+      <text class="t-core" x="658" y="213">app-tail agent</text>
+      <rect class="pill" x="620" y="244" width="260" height="44" rx="10"/>
+      <text class="p" x="638" y="271">Split DNS · encrypted upstreams</text>
+      <rect class="pill" x="620" y="298" width="260" height="44" rx="10"/>
+      <text class="p" x="638" y="325">Blocklists · threat protection</text>
+      <rect class="pill" x="620" y="352" width="260" height="44" rx="10"/>
+      <text class="p" x="638" y="379">Rules · exit nodes · egress</text>
+      <rect class="pill" x="620" y="406" width="260" height="44" rx="10"/>
+      <text class="p" x="638" y="433">Fabric NAT for clashing subnets</text>
+
+      <rect class="box net" x="950" y="180" width="290" height="80" rx="12"/>
+      <text class="t" x="968" y="214">Tailscale</text>
+      <text class="mono s" x="968" y="238">its own node, inside app-tail</text>
+      <rect class="box net" x="950" y="290" width="290" height="80" rx="12"/>
+      <text class="t" x="968" y="324">WireGuard</text>
+      <text class="mono s" x="968" y="348">userspace, inside app-tail</text>
+      <rect class="box net" x="950" y="400" width="290" height="80" rx="12"/>
+      <text class="t" x="968" y="434">OpenVPN</text>
+      <text class="mono s" x="968" y="458">system openvpn, run by the helper</text>
+
+      <path class="wire" d="M390 524 V508 H660 V492"/>
+      <path class="flow ctl" d="M390 522 V508 H660 V494"/>
+      <rect class="box" x="40" y="524" width="500" height="76" rx="12"/>
+      <text class="t" x="60" y="556">Dashboard · CLI · Tray</text>
+      <text class="mono s" x="60" y="580">loopback API, every call carries the token</text>
+
+      <path class="wire" d="M750 492 V524 M1095 480 V524"/>
+      <path class="flow priv" d="M750 494 V522 M1095 482 V522"/>
+      <rect class="root" x="600" y="524" width="640" height="76" rx="12"/>
+      <path class="lock" d="M626,560 h18 v16 h-18 Z M630,560 v-6 a5,5 0 0 1 10,0 v6"/>
+      <text class="mono r" x="660" y="556">ROOT HELPER</text>
+      <text class="mono s" x="1220" y="556" text-anchor="end">caller-verified · grants for big changes</text>
+      <text class="mono s" x="660" y="580">routes · DNS · network interface · openvpn</text>
+    </g>
+  </g>
+</svg>

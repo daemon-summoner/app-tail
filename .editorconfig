@@ -1,0 +1,38 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# gofmt writes tabs and will rewrite anything else, so this only tells the editor
+# what the formatter is already going to do.
+[*.go]
+indent_style = tab
+
+[*.{sh,bash}]
+indent_style = tab
+
+[*.{ts,tsx,js,jsx,css,html,json}]
+indent_style = space
+indent_size = 2
+
+[*.{yml,yaml}]
+indent_style = space
+indent_size = 2
+
+[*.md]
+indent_style = space
+indent_size = 2
+# Two trailing spaces are a hard line break in Markdown.
+trim_trailing_whitespace = false
+
+[Makefile]
+indent_style = tab
+
+# Reproduced verbatim from the vendor's archive; see .gitattributes.
+[internal/licenses/WINTUN_LICENSE.txt]
+end_of_line = unset
+insert_final_newline = unset
+trim_trailing_whitespace = false

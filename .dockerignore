@@ -1,0 +1,28 @@
+# Keep the build context small and reproducible: the image builds the UI and the
+# binary from source inside the stages, so no local build output should leak in.
+.git
+.gitignore
+*.md
+!README.md
+
+# Local build artifacts (the image rebuilds these)
+/app-tail
+/app-tail.exe
+/dist/
+/App-Tail.app/
+ui/node_modules/
+ui/dist/
+
+# Local agent state and secrets — never bake a tailnet identity into an image
+/.state/
+.env
+*.log
+/secrets/
+*.pem
+*.key
+
+# Editor / OS / tooling scratch
+.DS_Store
+.idea/
+.vscode/
+.playwright-mcp/

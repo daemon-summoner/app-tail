@@ -1,0 +1,17 @@
+# Globs are relative to this directory (ui/).
+#
+# These files carry the HTML `placeholder` attribute or the `::placeholder`
+# pseudo-element -- input hint text, which is the standard spelling and has
+# nothing to do with unimplemented code. Listed by name rather than as a
+# directory glob so a new file still has to be looked at once.
+src/components/DnsBlockListDialog.tsx
+src/components/DnsProfileDialog.tsx
+src/components/ForwardDialog.tsx
+src/components/IpsFeedDialog.tsx
+src/components/access/RulesTable.tsx
+src/components/mode/RoutingCard.tsx
+src/pages/ActivityPage.tsx
+src/styles/forms.css
+
+# Naming the vocabulary is this file's whole job, so it matches its own rules.
+.meow-verify-ignore

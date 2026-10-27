@@ -1,0 +1,77 @@
+# If you prefer the allow list template instead of the deny list, see community template:
+# https://github.com/github/gitignore/blob/main/community/Golang/Go.AllowList.gitignore
+#
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Code coverage profiles and other test artifacts
+*.out
+coverage.*
+*.coverprofile
+profile.cov
+# vitest --coverage writes a directory, which coverage.* does not match
+coverage/
+
+# Dependency directories (remove the comment below to include it)
+# vendor/
+
+# Go workspace file
+go.work
+go.work.sum
+
+# env file
+.env
+
+# Editor/IDE
+# .idea/
+# .vscode/
+
+# Build output
+/app-tail
+/app-tail.exe
+/dist/
+/App-Tail.app/
+# The Windows icon resource release.sh renders into the main package directory for the
+# duration of the .exe builds; go build only links a .syso it finds there.
+/rsrc_windows_amd64.syso
+
+# Frontend
+ui/node_modules/
+ui/dist/
+
+# Vitest writes its run cache to a node_modules directory at the checkout root, which is a
+# build artifact rewritten by every test run rather than anything belonging to the tree.
+/node_modules/
+
+# Local agent state (never commit tailnet identity or config with secrets)
+/.state/
+*.log
+
+# Credentials. docker-compose.yml tells the operator to create secrets/ inside the
+# checkout, so the repo has to refuse it before a `git add .` reaches it.
+/secrets/
+*.pem
+*.key
+
+# Browser-automation scratch output from the dashboard spot-check
+.playwright-mcp/
+
+# Serena's per-checkout index and settings, written by the editor tooling rather than
+# belonging to the project.
+/.serena/
+
+# Recorded transfer rates from scripts/throughput.sh. Each run holds the public address
+# this machine was seen at, which belongs to the machine and not to the repository.
+/.bench/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

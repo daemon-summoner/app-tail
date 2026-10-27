@@ -1,0 +1,167 @@
+/* --- choice pickers --------------------------------------------------------- */
+
+/* The choice pickers: which resolver this machine uses, and which connection carries its
+   internet traffic. Closed, the control is the choice in force; clicking it drops the rest
+   below. Each row keeps a second line -- the servers it resolves through, where it leaves
+   from -- because that is what tells two similarly named rows apart, and it is why this is
+   built rather than a native select. */
+.choice-picker {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.picker-legend {
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.picker-current {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 2px var(--sp-3);
+  width: 100%;
+  min-height: var(--hit);
+  text-align: left;
+  font: inherit;
+  letter-spacing: inherit;
+  color: var(--text-1);
+  background: var(--surface-0);
+  border: 1px solid var(--line-input);
+  border-radius: var(--radius-sm);
+  padding: 8px var(--sp-3);
+  cursor: pointer;
+  transition:
+    border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
+}
+
+.picker-current:hover:not(:disabled) {
+  border-color: var(--accent-1-line);
+}
+
+.picker-current[aria-expanded='true'] {
+  border-color: var(--accent-1);
+  box-shadow: var(--glow-1);
+}
+
+.picker-current:disabled {
+  cursor: default;
+  color: var(--text-2);
+}
+
+.picker-current .title {
+  font-weight: var(--fw-medium);
+}
+
+.picker-current .sub {
+  grid-column: 1;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+  overflow-wrap: anywhere;
+}
+
+/* The caret spans both rows of the closed control, so it stays centred whether or not the
+   choice in force has a second line. */
+.picker-caret {
+  grid-column: 2;
+  grid-row: 1 / -1;
+  justify-self: end;
+  width: 8px;
+  height: 8px;
+  border-right: 1.5px solid var(--text-3);
+  border-bottom: 1.5px solid var(--text-3);
+  transform: translateY(-2px) rotate(45deg);
+  transition: transform var(--dur) var(--ease);
+}
+
+.picker-current[aria-expanded='true'] .picker-caret {
+  transform: translateY(2px) rotate(225deg);
+}
+
+/* The open list lifts over the card rather than pushing it: a picker that reflowed
+   everything below it would move the thing somebody was about to read. Glass, so the
+   card is still there under the choices. */
+.choice-list {
+  position: absolute;
+  z-index: var(--z-popover);
+  top: 100%;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: var(--sp-1) 0 0;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: var(--sp-2);
+  background: var(--glass-strong);
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-popover);
+  animation: pop-in var(--dur) var(--ease-out) both;
+}
+
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .choice-list {
+    background: var(--glass);
+    backdrop-filter: saturate(140%) blur(var(--glass-blur));
+    -webkit-backdrop-filter: saturate(140%) blur(var(--glass-blur));
+  }
+}
+
+.choice-list legend {
+  padding: var(--sp-1) var(--sp-2);
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.choice-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 2px var(--sp-3);
+  min-height: var(--hit);
+  border-radius: var(--radius-sm);
+  padding: 7px var(--sp-2);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease);
+}
+
+.choice-row:hover {
+  background: var(--row-hover);
+}
+
+/* The row in force is washed in the accent whether or not it is hovered, so an open list
+   always shows where the choice currently stands. */
+.choice-row:has(input:checked) {
+  background: var(--row-selected);
+}
+
+.choice-row:has(input:focus-visible) {
+  box-shadow: var(--focus-ring);
+}
+
+.choice-row input {
+  grid-row: span 2;
+  margin: 0;
+}
+
+.choice-row .title {
+  font-weight: var(--fw-medium);
+  color: var(--text-1);
+}
+
+.choice-row .sub {
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+  overflow-wrap: anywhere;
+}

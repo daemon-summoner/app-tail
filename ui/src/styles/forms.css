@@ -1,0 +1,221 @@
+/* --- forms --------------------------------------------------------------- */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field label,
+.field .field-caption {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--text-2);
+}
+
+.field .hint {
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+
+/* Inline validation feedback under a field: a bad spec reads red, a resolved
+   multi-port spec reads in the accent so the fan-out is reassuring, not alarming. */
+.field .hint.bad {
+  color: var(--danger-text);
+}
+
+.field .hint.ok {
+  color: var(--accent-1);
+}
+
+/* Inputs are cut into the black: the darkest thing on the card, rimmed with a line bright
+   enough to find on the black page. Focus swaps the rim for the ring. */
+input[type='text'],
+input[type='number'],
+input[type='password'],
+input[type='search'],
+textarea,
+select {
+  background: var(--surface-0);
+  border: 1px solid var(--line-input);
+  border-radius: var(--radius-sm);
+  padding: 8px var(--sp-3);
+  min-height: var(--hit);
+  width: 100%;
+  font-family: var(--mono);
+  font-size: var(--fs-md);
+  font-feature-settings: var(--font-features-num);
+  color: var(--text-1);
+  transition:
+    border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-4);
+}
+
+/* A pasted configuration file is read as lines: it wraps rather than scrolling sideways,
+   and it resizes vertically because a file is anywhere from six lines to sixty. */
+textarea.config-file {
+  resize: vertical;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: var(--accent-1);
+  outline: none;
+}
+
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  border-color: var(--accent-1);
+  box-shadow: var(--focus-ring);
+}
+
+/* The select keeps the sans face -- its options are words -- and draws its own caret,
+   since the system one is painted for a light page. */
+select {
+  font-family: var(--sans);
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: var(--sp-7);
+  background-image: var(--select-caret);
+  background-repeat: no-repeat;
+  background-position: right var(--sp-3) center;
+  background-size: 12px;
+}
+
+select option {
+  background: var(--surface-1-solid);
+  color: var(--text-1);
+}
+
+input[type='number'] {
+  font-variant-numeric: tabular-nums;
+}
+
+input[type='checkbox'],
+input[type='radio'] {
+  accent-color: var(--accent-1);
+}
+
+/* A short form on one line: name, protocol, port, the button. Each label stacks its
+   caption over its control; the name takes twice the port's share of the row. */
+.inline-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  align-items: flex-end;
+}
+
+.inline-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.inline-form label > span {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--text-2);
+}
+
+.inline-form .grow-2 {
+  flex: 2;
+}
+
+.inline-form .grow-1 {
+  flex: 1;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-4);
+}
+
+.form-grid .span-2 {
+  grid-column: 1 / -1;
+}
+
+/* A rejected value reads red and sits directly under the control that carried it, so a
+   save that fails on one setting does not send the user hunting through the form. */
+.field .field-error {
+  font-size: var(--fs-sm);
+  color: var(--danger-text);
+}
+
+/* A boolean is one statement, not a checkbox with a caption: the toggle leads and the
+   label and help sit beside it on the same line of thought. */
+.switch-row {
+  display: flex;
+  gap: var(--sp-3);
+  align-items: flex-start;
+}
+
+.switch-row .switch-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.switch-row .switch-label {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-medium);
+  color: var(--text-1);
+}
+
+/* A set of choices: one row each, so the whole set reads down the column rather than as a
+   sentence to parse. The rows sit inside the field's own spacing, which is why the group
+   carries no border of its own. */
+.choice-set {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.choice-set .choice {
+  display: flex;
+  gap: var(--sp-3);
+  align-items: flex-start;
+  padding: var(--sp-2) var(--sp-3);
+  margin: 0 calc(-1 * var(--sp-3));
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+
+.choice-set .choice:hover {
+  background: var(--surface-2);
+}
+
+.choice-set .choice input {
+  margin: 3px 0 0;
+  flex: none;
+}
+
+.choice-set .choice-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.choice-set .choice-label {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-medium);
+  color: var(--text-1);
+}
+
+/* A note about the dashboard itself rather than the value -- an unknown setting type,
+   for instance. It is advisory, so it reads as a warning and not as a rejection. */
+.field .hint.warn-text {
+  color: var(--warn-text);
+}

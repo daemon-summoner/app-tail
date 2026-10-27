@@ -1,0 +1,326 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A force-push or a second push to the same PR makes the earlier run's answer
+# irrelevant, so it is cancelled rather than left burning runner minutes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.26"
+  NODE_VERSION: "22"
+
+# Every job runs on the organisation's self-hosted runners (ephemeral docker VMs
+# labelled self-hosted/linux/x64). Those images carry docker and the runner itself,
+# nothing else the steps below assume, so every tool a step needs is fetched into
+# RUNNER_TEMP rather than expected on PATH or installed system-wide. There is no
+# macOS or Windows runner, so those platforms are covered here by cross-compiling and
+# by linting their files under their GOOS; running their tests, smoking their binaries
+# and building the cgo tray front end for macOS are release.sh's to do on a real machine.
+jobs:
+  # ui/ui.go embeds ui/dist, so nothing Go can build or test exists until the SPA is
+  # built. Every downstream job downloads this instead of rebuilding it, which is
+  # also what keeps them testing the same bytes.
+  ui:
+    name: Build dashboard
+    runs-on: [self-hosted, linux, x64]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - run: npm ci
+        working-directory: ui
+      - run: npm run build
+        working-directory: ui
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ui-dist
+          path: ui/dist
+          retention-days: 1
+          if-no-files-found: error
+
+  go-test:
+    name: Test
+    needs: ui
+    runs-on: [self-hosted, linux, x64]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: ui-dist
+          path: ui/dist
+      - name: go test (race)
+        run: go test -race -shuffle=on -covermode=atomic -coverprofile=coverage.out ./...
+      - uses: actions/upload-artifact@v7
+        with:
+          name: coverage
+          path: coverage.out
+          retention-days: 7
+          if-no-files-found: error
+
+  ui-checks:
+    name: Dashboard typecheck, lint and tests
+    needs: ui
+    runs-on: [self-hosted, linux, x64]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - run: npm ci
+        working-directory: ui
+      - run: npm run typecheck
+        working-directory: ui
+      - run: npm run lint
+        working-directory: ui
+      - run: npm run test
+        working-directory: ui
+
+  lint:
+    name: Lint and scan
+    needs: ui
+    runs-on: [self-hosted, linux, x64]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # gitleaks scans history, which a shallow clone does not have.
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: ui-dist
+          path: ui/dist
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "unformatted files:"; echo "$unformatted"; exit 1
+          fi
+      - name: Generated types drift
+        run: |
+          go generate ./internal/config
+          git diff --exit-code -- ui/src/generated ||
+            { echo "generated types are stale; run: go generate ./internal/config"; exit 1; }
+      - name: Dependency integrity
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum ||
+            { echo "go.mod/go.sum are stale; run: go mod tidy"; exit 1; }
+          go mod verify
+      # internal/licenses embeds this file into every binary, so a dependency added
+      # without regenerating it ships attribution that omits the new module.
+      - name: Third-party notices
+        run: ./scripts/licenses.sh --check
+      # tray.go and tray_notray.go are mutually exclusive, so one run lints only one.
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.12.2
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.12.2
+          args: --build-tags notray
+      # A linter only ever sees the files its GOOS selects, so a run on Linux alone
+      # never opens *_windows.go or *_darwin.go at all. These two put the other
+      # platforms' files in front of it.
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.12.2
+        env:
+          GOOS: windows
+          GOARCH: amd64
+      # The darwin tray backend is Objective-C, which a Linux runner cannot typecheck, so
+      # the darwin pass lints the build that does without it. Every other *_darwin.go
+      # file is still in front of the linter.
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.12.2
+          args: --build-tags notray
+        env:
+          GOOS: darwin
+          GOARCH: arm64
+          CGO_ENABLED: "0"
+      - name: shellcheck
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -sSfL "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" |
+            tar -xJ -C "$RUNNER_TEMP/bin" --strip-components=1 "shellcheck-v${SHELLCHECK_VERSION}/shellcheck"
+          "$RUNNER_TEMP/bin/shellcheck" -x -S style ./*.sh scripts/*.sh
+        env:
+          SHELLCHECK_VERSION: 0.10.0
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          "$(go env GOPATH)/bin/govulncheck" ./...
+      # Installed directly rather than via gitleaks-action, which requires a paid
+      # licence for organisation-owned repositories. This is the same invocation
+      # verify.sh runs, so the gate and CI cannot drift apart.
+      - name: gitleaks
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" |
+            tar -xz -C "$RUNNER_TEMP/bin" gitleaks
+          "$RUNNER_TEMP/bin/gitleaks" dir . --no-banner
+          "$RUNNER_TEMP/bin/gitleaks" git . --no-banner
+        env:
+          GITLEAKS_VERSION: 8.30.1
+
+  cross-build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }} ${{ matrix.tags || 'tray' }}
+    needs: ui
+    runs-on: [self-hosted, linux, x64]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: darwin, goarch: arm64, tags: notray }
+          - { goos: darwin, goarch: amd64, tags: notray }
+          - { goos: linux, goarch: amd64, tags: notray }
+          - { goos: linux, goarch: arm64, tags: notray }
+          - { goos: windows, goarch: amd64, tags: notray }
+          # release.sh ships the Windows .exe with the tray, and that build needs no
+          # cgo, so the artifact users actually get is compiled here rather than
+          # first attempted on release day.
+          - { goos: windows, goarch: amd64, tags: "" }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: ui-dist
+          path: ui/dist
+      - run: go build -trimpath -tags "${{ matrix.tags }}" -o /dev/null .
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+
+  # The .exe most Windows users run is the windowed one: release.sh builds it with
+  # -H=windowsgui and with an icon resource that go build picks up from a .syso in the repo
+  # root. The matrix above exercises neither, so both would first be attempted on release
+  # day -- and the windowed build is the one whose standard error goes nowhere, which makes
+  # a failure in it the hardest of all to diagnose after the fact.
+  windows-gui-build:
+    name: Build windows/amd64 (windowed, with icon)
+    needs: ui
+    runs-on: [self-hosted, linux, x64]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: ui-dist
+          path: ui/dist
+      - name: Render the Windows resource object
+        run: go run ./internal/icon/gen syso rsrc_windows_amd64.syso "$(git describe --tags --always --abbrev=12)"
+      - name: Build the windowed .exe
+        run: go build -trimpath -ldflags "-H=windowsgui" -o /tmp/app-tail-gui.exe .
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: 0
+      # Building is not the whole question: a linker flag that stopped taking effect would
+      # produce a working .exe that opens a console window on every start, which is exactly
+      # what this build exists to avoid. The PE subsystem byte is where that is recorded.
+      # od rather than python: the self-hosted image carries coreutils and nothing else.
+      # The PE header offset sits at 0x3C; the subsystem word is 68 bytes into the
+      # optional header, which starts 24 bytes after the "PE\0\0" signature.
+      - name: The .exe really is a windowed build
+        run: |
+          exe=/tmp/app-tail-gui.exe
+          pe=$(od -An -t u4 -j 60 -N 4 "$exe" | tr -d ' ')
+          sig=$(od -An -c -j "$pe" -N 4 "$exe" | tr -d ' ')
+          [ "$sig" = 'PE\0\0' ] || { echo "not a PE image (signature: $sig)"; exit 1; }
+          subsystem=$(od -An -t u2 -j $((pe + 24 + 68)) -N 2 "$exe" | tr -d ' ')
+          echo "subsystem: $subsystem"
+          [ "$subsystem" = 2 ] ||
+            { echo "subsystem is $subsystem, want 2 (windowed); -H=windowsgui did not take effect"; exit 1; }
+
+  smoke:
+    name: Smoke
+    needs: ui
+    runs-on: [self-hosted, linux, x64]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: ui-dist
+          path: ui/dist
+      - name: Build and smoke the real binary
+        run: |
+          go build -trimpath -o app-tail .
+          ./scripts/smoke.sh
+      # internal/cli/registry.go is the one place the command table lives. This makes
+      # docs/cli.md a consumer of it rather than a hand-maintained copy.
+      - name: docs/cli.md command block matches --help
+        run: |
+          doc=$(sed -n '/<!-- commands:begin -->/,/<!-- commands:end -->/p' docs/cli.md | grep '^  app-tail')
+          help=$(./app-tail --help | sed -n '/^Usage:/,/^$/p' | grep '^  app-tail')
+          diff <(echo "$doc") <(echo "$help") ||
+            { echo "docs/cli.md is out of date with app-tail --help"; exit 1; }
+
+  docker:
+    name: Docker image
+    needs: ui
+    runs-on: [self-hosted, linux, x64]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      # The image has no .git, so debug.ReadBuildInfo cannot recover a version.
+      # Without these the image reports "dev", and the version a bug report quotes
+      # stops matching the commit it was built from.
+      - name: Resolve version
+        id: version
+        run: |
+          {
+            echo "version=$(git describe --tags --always --abbrev=12 --dirty=+dirty 2>/dev/null || echo dev)"
+            echo "commit=$(git rev-parse HEAD)"
+            echo "date=$(git show -s --format=%cI HEAD)"
+          } >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: false
+          load: true
+          tags: app-tail:ci
+          build-args: |
+            APPTAIL_VERSION=${{ steps.version.outputs.version }}
+            APPTAIL_COMMIT=${{ steps.version.outputs.commit }}
+            APPTAIL_DATE=${{ steps.version.outputs.date }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      # A built image proves it compiles; running it proves it starts, and asserting
+      # the version proves the build args reached the linker rather than silently
+      # falling back to "dev".
+      - name: Assert the image starts and knows its version
+        run: |
+          got=$(docker run --rm app-tail:ci version)
+          echo "image reports: $got"
+          case "$got" in
+            dev|"") echo "image did not receive its build metadata"; exit 1 ;;
+          esac

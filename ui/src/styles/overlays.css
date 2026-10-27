@@ -1,0 +1,190 @@
+/* --- overlays ------------------------------------------------------------ */
+
+/* The page dims and blurs under anything modal, and what opens over it scales in from
+   very nearly its final size: enough to say it arrived, not enough to be a show. */
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-scrim);
+  display: flex;
+  background: var(--scrim);
+  animation: fade-in var(--dur) var(--ease-out) both;
+}
+
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .scrim {
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+  }
+}
+
+.modal {
+  margin: auto;
+  width: min(620px, calc(100vw - 32px));
+  max-height: calc(100vh - 64px);
+  overflow: auto;
+  background: var(--surface-1-solid);
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-modal);
+  animation: scale-in var(--dur-slow) var(--ease-out) both;
+}
+
+.drawer {
+  margin-left: auto;
+  width: min(480px, 100vw);
+  height: 100%;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-1-solid);
+  border-left: 1px solid var(--line-2);
+  box-shadow: var(--shadow-drawer);
+  animation: slide-in-right var(--dur-slow) var(--ease-out) both;
+}
+
+/* The head and foot stay put while the body scrolls, so the name of the dialog and its
+   buttons are always in reach of a long form. */
+.overlay-head {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-raised);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-4) var(--sp-5);
+  background: var(--surface-1-solid);
+  border-bottom: 1px solid var(--line-1);
+}
+
+.overlay-head h2 {
+  margin: 0;
+  font-size: var(--fs-title);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-tight);
+}
+
+.overlay-body {
+  padding: var(--sp-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+
+/* The body's own gap spaces its paragraphs; a margin on top of it would double them. */
+.overlay-body > p {
+  margin: 0;
+}
+
+.overlay-foot {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: var(--sp-3);
+  justify-content: flex-end;
+  padding: var(--sp-4) var(--sp-5);
+  background: var(--surface-1-solid);
+  border-top: 1px solid var(--line-1);
+}
+
+/* --- picker lists -------------------------------------------------------- */
+
+.picker {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 300px;
+  overflow: auto;
+  padding: 4px;
+  background: var(--surface-0);
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+}
+
+.picker-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  width: 100%;
+  min-height: var(--hit);
+  padding: 8px var(--sp-3);
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-xs);
+  color: var(--text-1);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease);
+}
+
+/* A row that is a listing rather than a choice: the same shape, but nothing to pick. */
+.picker-item.static {
+  cursor: default;
+}
+
+.picker-item:not(.static):hover {
+  background: var(--row-hover);
+}
+
+.picker-item[aria-selected='true'] {
+  background: var(--row-selected);
+}
+
+.picker-item .title {
+  font-weight: var(--fw-medium);
+}
+
+.picker-item .sub {
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+
+/* Who publishes the run of rows under it, and the control that opens that run. Quiet
+   enough that the rows stay the thing being read, present enough that six tiers from one
+   author read as one choice. */
+.picker-group {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: var(--sp-3) var(--sp-3) 2px;
+  background: transparent;
+  border: none;
+  text-align: left;
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-3);
+  cursor: pointer;
+  transition: color var(--dur) var(--ease);
+}
+
+.picker-group:hover {
+  color: var(--text-1);
+}
+
+.picker-group .count {
+  margin-left: auto;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.picker-group .picker-caret {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateY(-1px) rotate(-45deg);
+  transition: transform var(--dur) var(--ease);
+}
+
+.picker-group[aria-expanded='true'] .picker-caret {
+  transform: translateY(-2px) rotate(45deg);
+}
+
+.picker > [role='group']:first-child .picker-group {
+  padding-top: 2px;
+}

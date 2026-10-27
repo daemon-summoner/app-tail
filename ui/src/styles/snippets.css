@@ -1,0 +1,108 @@
+/* --- copyable snippets --------------------------------------------------- */
+
+/* Numbered click-path through an external console. Sized for scanning: the step you
+   are on should be findable without reading the ones around it. */
+.howto {
+  margin: 2px 0 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: var(--fs-md);
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+.howto strong {
+  color: var(--text-1);
+  font-weight: var(--fw-semibold);
+}
+
+.howto ::marker {
+  color: var(--accent-1);
+  font-weight: var(--fw-semibold);
+}
+
+/* Paths most people never need: present, one click away, never in the way. */
+.advanced {
+  border-top: 1px solid var(--line-1);
+  padding-top: var(--sp-4);
+}
+
+.advanced > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--hit);
+  cursor: pointer;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--text-2);
+  list-style: none;
+  transition: color var(--dur) var(--ease);
+}
+
+.advanced > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* The disclosure caret, drawn so it turns rather than swaps. */
+.advanced > summary::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform var(--dur) var(--ease);
+}
+
+.advanced[open] > summary::before {
+  transform: translateY(-1px) rotate(45deg);
+}
+
+.advanced > summary:hover {
+  color: var(--text-1);
+}
+
+.advanced-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding-top: var(--sp-4);
+  animation: fade-in var(--dur) var(--ease-out) both;
+}
+
+.advanced-actions {
+  display: flex;
+  gap: var(--sp-2);
+  justify-content: flex-end;
+}
+
+/* A command to run somewhere else: set on the black, in the mono face, with the copy
+   button riding its top corner. */
+.snippet {
+  position: relative;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  background: var(--surface-0);
+}
+
+.snippet pre {
+  margin: 0;
+  padding: var(--sp-3) var(--sp-4);
+  padding-right: 72px;
+  overflow: auto;
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+  color: var(--text-2);
+  white-space: pre;
+}
+
+.snippet .copy {
+  position: absolute;
+  top: var(--sp-2);
+  right: var(--sp-2);
+}

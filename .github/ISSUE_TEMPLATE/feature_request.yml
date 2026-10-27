@@ -1,0 +1,54 @@
+name: Feature request
+description: Something app-tail should be able to do.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do
+      description: >
+        The situation you are in, rather than the feature you have in mind. app-tail
+        can usually be pointed at a problem in more than one way, and knowing the
+        problem is what makes it possible to pick the right one.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like it to do
+    validations:
+      required: true
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: What you do today instead
+      description: How you work around it now, including with another tool.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: connections
+    attributes:
+      label: Which kinds of connection this involves
+      multiple: true
+      options:
+        - Tailscale
+        - WireGuard
+        - OpenVPN
+        - None in particular
+    validations:
+      required: false
+
+  - type: dropdown
+    id: platforms
+    attributes:
+      label: Which platforms this matters on
+      multiple: true
+      options:
+        - macOS
+        - Windows
+        - Linux
+    validations:
+      required: false

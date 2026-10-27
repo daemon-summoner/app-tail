@@ -1,0 +1,188 @@
+/* --- layout ------------------------------------------------------------- */
+
+.wordmark {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  filter: drop-shadow(0 0 6px var(--accent-1-wash));
+}
+
+/* The mark's colours live here rather than as fill= attributes on the SVG: a
+   presentation attribute cannot read a custom property, so a mark painted inline is
+   the one thing on the page a palette could never reach. */
+.wordmark .plate {
+  fill: var(--surface-3-solid);
+}
+
+.wordmark .node {
+  fill: var(--accent-1);
+}
+
+.wordmark .link {
+  stroke: var(--accent-1);
+}
+
+/* The build string is a fact, not a heading: set as a chip so a long version does not
+   read as a second title in the bar. A development build carries a timestamp, a commit
+   and a dirty marker, which is wider than everything else in the bar put together, so
+   the chip is capped and the whole string stays in its tooltip. */
+.version {
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+  font-family: var(--mono);
+  padding: 3px var(--sp-2);
+  border: 1px solid var(--line-1);
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+  max-width: 18ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A card is a slightly lighter piece of the black, rimmed with light along its top edge.
+   Elevation here is a rim and a glow rather than a shadow: a shadow on a surface that is
+   already black has nowhere darker to go. */
+.panel {
+  position: relative;
+  background: var(--surface-1);
+  border: 1px solid var(--line-1);
+  border-radius: var(--radius-md);
+  box-shadow: var(--elev-1);
+  transition:
+    border-color var(--dur) var(--ease),
+    box-shadow var(--dur-slow) var(--ease);
+}
+
+/* One hairline of light along the top edge, which is what keeps a card from reading as a
+   rectangle cut out of the page. It is drawn rather than filled so it cannot tint the
+   card's own contents. */
+.panel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--grad-panel-top);
+  pointer-events: none;
+}
+
+.panel > * {
+  position: relative;
+}
+
+/* The one card a page is about -- the tailnet connection on the dashboard -- carries the
+   accent down its left edge and a glow the others do not, so the eye lands there first. */
+.panel.primary {
+  border-color: var(--accent-1-line);
+  box-shadow: var(--glow-card), var(--elev-1);
+}
+
+.panel.primary::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: var(--sp-4);
+  bottom: var(--sp-4);
+  width: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--grad-accent);
+  box-shadow: var(--glow-1);
+  pointer-events: none;
+}
+
+/* Pushes whatever follows it to the far end of a flex row. */
+.spacer {
+  flex: 1;
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  /* Wraps rather than overflowing: the head carries a name, a state, a switch and
+     whatever the card can be told to do, and on a narrow window that is more than one
+     line's worth. Nothing here is worth a sideways scrollbar on the whole page. */
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  row-gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-5);
+  border-bottom: 1px solid var(--line-1);
+}
+
+/* Sentence case at reading weight. The card's name is the thing a reader navigates by,
+   and small tracked-out capitals are the hardest way to write one. */
+.panel-head h2 {
+  margin: 0;
+  font-size: var(--fs-title);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking);
+  color: var(--text-1);
+}
+
+.panel-body {
+  padding: var(--sp-5);
+}
+
+/* A number a card is built around -- bytes moved, names refused -- set large, in the
+   accent gradient, with every digit the same width so it can be watched change. */
+.metric {
+  font-size: var(--fs-metric);
+  font-weight: var(--fw-bold);
+  line-height: 1.1;
+  letter-spacing: var(--tracking-tight);
+  font-feature-settings: var(--font-features-num);
+  font-variant-numeric: tabular-nums;
+  background: var(--grad-accent-h);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.metric-label {
+  display: block;
+  margin-top: var(--sp-1);
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+/* The outline of what is on its way: one line per thing that will be there, moving so
+   a reader knows the page is still working rather than stuck. */
+.skeleton {
+  display: block;
+  height: 1em;
+  border-radius: var(--radius-xs);
+  background: var(--grad-skeleton);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s var(--ease) infinite;
+}
+
+.skeleton + .skeleton {
+  margin-top: var(--sp-2);
+}
+
+.skeleton.wide {
+  width: 100%;
+}
+
+.skeleton.half {
+  width: 50%;
+}
+
+.skeleton.tall {
+  height: 2.4em;
+}
+
+/* The slot a toggle will take, at the toggle's own size so nothing shifts when it lands. */
+.skeleton.switch {
+  width: 40px;
+  height: 22px;
+  border-radius: var(--radius-pill);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+    background-position: 50% 0;
+  }
+}

@@ -1,0 +1,63 @@
+# Files the static integration scan may not read for its marker vocabulary, because the
+# vocabulary is the subject matter rather than a leftover. One glob per line.
+#
+# This list is for words that mean something real here and cannot be spelled another way.
+# It is never the answer to a genuine TODO, stub or placeholder: those get implemented or
+# deleted. Every entry names the term and why it has to stay.
+#
+# The cost is real and worth stating: an ignored file is skipped whole, so its silent
+# failures and stray-file checks are skipped too. Keep this list short, and prefer renaming
+# to listing whenever the word is ours to choose.
+
+# This list itself, because naming the vocabulary is what every entry below is for and the
+# scan would otherwise read its own reasons as findings.
+.meow-verify-ignore
+
+# "stub resolver" is RFC 1034's name for the resolver a client points at, and the timeouts,
+# truncation rules and query flags in these files are written against its documented
+# behaviour. Renaming it would leave the protocol reasoning describing something with no name.
+internal/dnsfwd/dnsfwd.go
+internal/dnsfwd/lookup.go
+internal/dnsfwd/wire.go
+
+# dnsmessage.RCodeNotImplemented is the standard library's constant for DNS RCODE 4, returned
+# for a query class this resolver does not answer. The name is not ours to choose.
+internal/dnsfwd/route.go
+
+# http.StatusNotImplemented is the standard library's name for HTTP 501. It is given one
+# name of ours here so the file that maps errors to statuses stays scanned.
+internal/httpapi/status.go
+
+# placeholder is the HTML attribute that renders the grey hint text inside an empty input.
+# Every match in these files is that attribute on a real control.
+ui/src/components/settings/controls.tsx
+ui/src/components/access/RulesTable.tsx
+ui/src/components/mode/RoutingCard.tsx
+ui/src/components/DnsProfileDialog.tsx
+ui/src/components/DnsBlockListDialog.tsx
+ui/src/components/IpsFeedDialog.tsx
+ui/src/pages/ActivityPage.tsx
+
+# "fakenews" is StevenBlack's own name for one of the hosts files this catalog points at,
+# and it is both the id in the settings and the path in the URL. Spelling it another way
+# would name a list that does not exist.
+internal/dnsblock/catalog.go
+
+# The same names again, one file over: the ladder names Hagezi's fake-shop list by its id and
+# says which rungs carry the fake-news category, so "fake" here is the subject rather than a
+# leftover marker.
+internal/dnsblock/presets.go
+
+# "compress stub-v2" is openvpn's own spelling of the option that turns compression off, and
+# this file reads openvpn configurations. The value is written by the servers whose files are
+# pasted in, so it is not ours to spell another way.
+internal/config/ovpnfile.go
+
+# A lockfile nobody writes by hand: the marker turns up inside npm's base64 integrity
+# hashes. The scan excludes a lockfile at the repo root and this one is a directory down.
+*/package-lock.json
+
+# placeholder is a field of GitHub's issue-form schema, which renders the grey hint text
+# inside an empty input. The word is the schema's, not ours.
+.github/ISSUE_TEMPLATE/bug_report.yml
+.github/ISSUE_TEMPLATE/feature_request.yml

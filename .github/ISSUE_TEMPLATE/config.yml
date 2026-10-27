@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/sellitus/app-tail/security/advisories/new
+    about: Report privately through Security > Advisories. Please do not open a public issue for anything exploitable.
+  - name: Troubleshooting guide
+    url: https://github.com/sellitus/app-tail/blob/main/docs/troubleshooting.md
+    about: Known failures and their fixes, and how to read the health check, the logs and `app-tail tun doctor`.

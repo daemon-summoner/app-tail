@@ -1,0 +1,120 @@
+version: "2"
+
+# Enabled linters are the ones that find defects. The style families are left off
+# deliberately -- see the note under `disable` for which and why.
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+    - bodyclose
+    - noctx
+    - errorlint
+    - nilerr
+    - unconvert
+    - misspell
+    - usetesting
+    - copyloopvar
+    - durationcheck
+    - makezero
+    - reassign
+
+  settings:
+    govet:
+      enable:
+        # shadow is deliberately NOT enabled: measured at 11 findings here, every one
+        # an idiomatic `if err := f(); err != nil` inside a function that already has
+        # an err. Zero defects, and blocking on it would push the codebase away from
+        # the idiom.
+        - nilness
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+      exclude-functions:
+        # A failed write to the CLI's own stdout/stderr is not actionable: there is
+        # nowhere left to report it. The writes that DO matter -- flushing a
+        # tabwriter, closing a file being written -- are checked and returned.
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        # Closing something being discarded -- a drained response body, a listener
+        # being torn down -- has no recoverable failure. *os.File.Close stays checked
+        # on purpose: there it reports a failed flush, which loses data.
+        - (io.ReadCloser).Close
+        # A bare io.Closer is only ever the "close these and move on" helper: sockets
+        # opened to find out whether they could be, and duplicated descriptors after the
+        # thing that wanted them took over. Anything whose close reports a lost write
+        # arrives here as its own type and stays checked.
+        - (io.Closer).Close
+        - (net.Listener).Close
+        - (net.Conn).Close
+        - (net.PacketConn).Close
+        # A registry handle commits on the write itself, not on the close, so closing
+        # one reports nothing that was lost and nothing a caller could redo.
+        - (golang.org/x/sys/windows/registry.Key).Close
+        # A connection in the userspace stack is a net.Conn reached through its concrete
+        # type, so the exclusion above does not cover it. It is closed only after its
+        # endpoint has been aborted, where there is nothing left to lose or to redo.
+        - (*gvisor.dev/gvisor/pkg/tcpip/adapters/gonet.TCPConn).Close
+        # Setting the linger option chooses how the close below behaves. The only way it
+        # fails is a socket already closed underneath, which the close then reports the
+        # same way -- so the error says nothing the next line does not.
+        - (github.com/sellitus/app-tail/internal/netpipe.lingerSetter).SetLinger
+    staticcheck:
+      # SA (correctness) and S (simplification) find defects. ST (style) and QF
+      # (editor quick-fixes) are the style families this config deliberately omits.
+      checks: ["all", "-ST*", "-QF*"]
+
+  exclusions:
+    generated: lax
+    paths:
+      # A vendored Go file ships inside the npm dependency tree. It is not ours.
+      - ui/node_modules
+    rules:
+      # Generated from the settings registry by internal/config/gen; the generator
+      # is what gets fixed if its output is wrong.
+      - path: internal/config/gen/
+        linters: [errcheck, staticcheck]
+      # A test that fails to close a listener or dial without a context fails the
+      # test; the process exits either way. These three exist to catch leaks that
+      # accumulate in a long-lived agent, which no test binary is.
+      - path: _test\.go
+        linters: [errcheck, noctx, bodyclose]
+      # A unix socket address is capped near 104 bytes and t.TempDir() derives its path
+      # from the test's own name, which reaches that on its own. The helper tests bind a
+      # real socket, so they make a short directory instead.
+      - path: (internal/hostnet/session|internal/tsnode/report|internal/tsproxy/socket)_unix_test\.go
+        linters: [usetesting]
+      # noctx is kept for its HTTP checks. A server socket that lives as long as the
+      # process has no context to cancel, so ListenConfig buys nothing there.
+      - linters: [noctx]
+        text: "must not be called. use \\(\\*net.ListenConfig\\)"
+
+# Deliberately NOT enabled, with reasons, so nobody re-adds them expecting value:
+#
+#   gosec         - every finding here is G304 against the intentional --config and
+#                   --state-dir paths, which are the operator's own arguments. Four
+#                   nosec comments, no insight.
+#   revive, wsl,  - style families. This codebase's comment prose and layout are
+#   gocritic        deliberate; these generate churn against it and find no defects.
+#   dupl, gocyclo,- arbitrary thresholds with no defect-finding power at this size.
+#   funlen, lll
+#   contextcheck  - false-positives against the intentional context.WithoutCancel in
+#                   internal/tsnode, which is how the watcher outlives the request.
+
+formatters:
+  enable:
+    - gofmt
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  # Ratchet: the gate blocks on findings in code this branch changed, not on the
+  # ~90 pre-existing ones (mostly unchecked Close on connections that are being
+  # torn down anyway). New code cannot add to that backlog while it is burnt down
+  # separately. Run `golangci-lint run ./...` with no ratchet to see the whole set.
+  new-from-rev: HEAD
+  whole-files: true

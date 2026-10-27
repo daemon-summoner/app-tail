@@ -1,0 +1,258 @@
+/* Every colour in the dashboard is named here and nowhere else. A rule elsewhere that
+   writes a hex or an rgba() is a rule that cannot be re-themed, so verify.sh fails on
+   one. The selector carries [data-theme='dark'] alongside :root so that adding a light
+   palette later is one more block rather than an audit of every file. */
+
+:root,
+[data-theme='dark'] {
+  /* The page is true black: on an OLED panel every black pixel is off, and the neon
+     accents below only read as light when there is nothing behind them. Surfaces are a
+     cool white at a few percent over that black, so a panel over a panel gets brighter
+     the way a lit object does, and the same surface reads the same over any glow. The
+     opaque twins are for the places alpha stacks wrongly (sticky heads, popovers). */
+  --surface-0: #000000;
+  --surface-1: rgba(200, 210, 255, 0.035);
+  --surface-2: rgba(200, 210, 255, 0.06);
+  --surface-3: rgba(200, 210, 255, 0.09);
+  --surface-1-solid: #070709;
+  --surface-3-solid: #121317;
+  --glass: rgba(6, 7, 10, 0.62);
+  --glass-strong: rgba(6, 7, 10, 0.78);
+  --glass-blur: 16px;
+
+  /* Hairlines, from the one that only separates to the one that outlines. --line-input
+     is the exception that has to be seen: an input's edge is where the eye is told it
+     can type. */
+  --line-1: rgba(200, 210, 255, 0.07);
+  --line-2: rgba(200, 210, 255, 0.12);
+  --line-3: rgba(200, 210, 255, 0.2);
+  --line-input: rgba(200, 210, 255, 0.46);
+
+  /* Four text steps. --text-4 is 3.7:1 on black, so it is for the hint inside an empty
+     input and for disabled controls only; body copy never drops below --text-3 (6.8:1). */
+  --text-1: #f2f4fa;
+  --text-2: #b4bccf;
+  --text-3: #8a93a8;
+  --text-4: #5f6780;
+
+  /* Cyan is the voice of this app; the purple at the far end of the gradients below is
+     the second voice, and --accent-3 is the blue the two become where a gradient crosses.
+     --accent-ink is what text is set in on a gradient fill: white on the purple end fails
+     at 3.5:1. */
+  --accent-1: #20dcff;
+  --accent-3: #6e9bff;
+  --accent-ink: #001a22;
+  --accent-1-wash: rgba(32, 220, 255, 0.1);
+  --accent-1-line: rgba(32, 220, 255, 0.38);
+
+  /* Whole gradients, for the same reason the shadows below are whole values: half a
+     gradient written in a sheet is half the palette living outside this file. */
+  --grad-accent: linear-gradient(135deg, #20dcff 0%, #6e9bff 50%, #bd5aff 100%);
+  --grad-accent-h: linear-gradient(90deg, #20dcff 0%, #6e9bff 50%, #bd5aff 100%);
+  --grad-thumb: linear-gradient(135deg, rgba(32, 220, 255, 0.28), rgba(189, 90, 255, 0.28));
+  /* A single hairline of light along a panel's top edge. It is what stops a card from
+     reading as a rectangle cut out of the page. */
+  --grad-panel-top: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0) 96px);
+  /* The only thing behind the whole window: three very dilute lights, one per accent,
+     that give a flat black a direction to be lit from. */
+  --grad-page:
+    radial-gradient(1100px 620px at 8% -14%, rgba(32, 220, 255, 0.075), transparent 60%),
+    radial-gradient(1000px 560px at 98% -8%, rgba(189, 90, 255, 0.085), transparent 58%),
+    radial-gradient(900px 700px at 55% 110%, rgba(110, 155, 255, 0.05), transparent 62%),
+    #000000;
+  /* A dot grid so faint it reads as texture rather than as a grid. It is what keeps a
+     black background from looking like an unpainted area of the window. */
+  --grid-dots: radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.035) 1px, transparent 0);
+  --grad-skeleton: linear-gradient(
+    90deg,
+    rgba(200, 210, 255, 0.04) 0%,
+    rgba(200, 210, 255, 0.1) 50%,
+    rgba(200, 210, 255, 0.04) 100%
+  );
+  --grad-rule: linear-gradient(90deg, rgba(32, 220, 255, 0.5), rgba(189, 90, 255, 0));
+
+  /* States. Each has three roles, because a state is a dot, a wash behind a row, and a
+     word, and the three want different strengths of the same hue. */
+  --ok: #3dff9a;
+  --warn: #ffc233;
+  --danger: #ff5c7a;
+  --ok-wash: rgba(61, 255, 154, 0.12);
+  --ok-line: rgba(61, 255, 154, 0.35);
+  --warn-wash: rgba(255, 194, 51, 0.12);
+  --warn-line: rgba(255, 194, 51, 0.35);
+  --warn-text: #ffd66e;
+  --danger-wash: rgba(255, 92, 122, 0.12);
+  --danger-line: rgba(255, 92, 122, 0.38);
+  --danger-text: #ff9db0;
+  --tone-ok: var(--ok);
+  --tone-ok-wash: var(--ok-wash);
+  --tone-ok-line: var(--ok-line);
+  --tone-warn: var(--warn);
+  --tone-warn-wash: var(--warn-wash);
+  --tone-warn-line: var(--warn-line);
+  --tone-danger: var(--danger);
+  --tone-danger-wash: var(--danger-wash);
+  --tone-danger-line: var(--danger-line);
+
+  /* Eight series. The first three are ordered to stay apart under the common colour
+     vision deficiencies, and hue is never the only channel a chart uses -- every
+     series also carries a fill or dash variant. */
+  --chart-1: #20dcff;
+  --chart-2: #bd5aff;
+  --chart-3: #ff6ad5;
+  --chart-4: #ffc233;
+  --chart-5: #3dff9a;
+  --chart-6: #ff8a3d;
+  --chart-7: #6e9bff;
+  --chart-8: #ff5c7a;
+  --chart-grid: rgba(200, 210, 255, 0.06);
+  --chart-axis: var(--text-3);
+  --chart-crosshair: rgba(32, 220, 255, 0.55);
+  --chart-fill-alpha-top: 0.32;
+
+  /* Elevation on black is a rim of light and a glow, not a drop shadow: a shadow on a
+     surface that is already black has nowhere darker to go. */
+  --elev-1: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 8px 24px rgba(0, 0, 0, 0.5);
+  --glow-1: 0 0 18px rgba(32, 220, 255, 0.28);
+  --glow-accent: 0 8px 24px rgba(32, 220, 255, 0.24), 0 2px 8px rgba(189, 90, 255, 0.2);
+  --glow-accent-hover: 0 10px 32px rgba(32, 220, 255, 0.34), 0 2px 10px rgba(189, 90, 255, 0.28);
+  --glow-card: 0 0 0 1px rgba(32, 220, 255, 0.12), 0 12px 40px rgba(32, 220, 255, 0.08);
+  --glow-danger: 0 8px 24px rgba(255, 92, 122, 0.22);
+  --glow-chart-inner: inset 0 0 60px rgba(32, 220, 255, 0.04);
+  --glow-dot-ok: 0 0 0 3px rgba(61, 255, 154, 0.16), 0 0 10px rgba(61, 255, 154, 0.5);
+  --glow-dot-warn: 0 0 0 3px rgba(255, 194, 51, 0.16), 0 0 10px rgba(255, 194, 51, 0.5);
+  --glow-dot-danger: 0 0 0 3px rgba(255, 92, 122, 0.16), 0 0 10px rgba(255, 92, 122, 0.5);
+  --pulse-ok: rgba(61, 255, 154, 0.45);
+  /* The ring sits on a black gap so it stays visible over a gradient fill and over the
+     black page alike. */
+  --focus-ring: 0 0 0 1px #000000, 0 0 0 3px var(--accent-1);
+  --scrim: rgba(0, 0, 0, 0.72);
+  --shadow-modal: 0 1px 0 rgba(255, 255, 255, 0.08) inset, 0 32px 80px rgba(0, 0, 0, 0.7);
+  --shadow-drawer: 0 1px 0 rgba(255, 255, 255, 0.06) inset, -24px 0 64px rgba(0, 0, 0, 0.6);
+  --shadow-popover: 0 1px 0 rgba(255, 255, 255, 0.07) inset, 0 16px 40px rgba(0, 0, 0, 0.6);
+
+  /* Interactive surfaces. Hover and pressed states are colours too. */
+  --btn-bg: rgba(200, 210, 255, 0.06);
+  --btn-line: rgba(200, 210, 255, 0.14);
+  --btn-hover: rgba(200, 210, 255, 0.11);
+  --btn-hover-line: rgba(200, 210, 255, 0.24);
+  --btn-danger-line: rgba(255, 92, 122, 0.3);
+  --btn-danger-line-hover: rgba(255, 92, 122, 0.5);
+  --track-off: rgba(200, 210, 255, 0.16);
+  --knob-off: #b4bccf;
+  --knob-on: #ffffff;
+  --row-hover: rgba(200, 210, 255, 0.04);
+  --row-selected: rgba(32, 220, 255, 0.07);
+  /* A chevron for selects, drawn here so the sheet that uses it carries no colour. */
+  --select-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a93a8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+
+  /* The badges name a protocol or a direction, so each keeps its own hue. */
+  --badge-udp-line: rgba(189, 90, 255, 0.4);
+  --badge-udp-text: #d39bff;
+  --badge-tcp-line: rgba(32, 220, 255, 0.36);
+  --badge-tcp-text: #7ceaff;
+  --badge-both-line: rgba(110, 155, 255, 0.4);
+  --badge-both-text: #a7c0ff;
+  --badge-tailnet-line: rgba(255, 194, 51, 0.4);
+
+  /* A notice tints its whole box, which needs a border and a text colour that survive
+     the wash behind them -- lighter than the plain --danger/--warn used on a dot. */
+  --notice-error-line: rgba(255, 92, 122, 0.35);
+  --notice-error-text: #ffb3c1;
+  --notice-warn-line: rgba(255, 194, 51, 0.35);
+  --notice-warn-wash: rgba(255, 194, 51, 0.08);
+  --notice-warn-text: #ffdd88;
+
+  /* A QR code is read by a camera, which expects dark on light whatever the page is. */
+  --qr-bg: #fff;
+
+  --radius-xs: 6px;
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-pill: 999px;
+
+  /* One spacing scale, so the gap between a card's rows and the gap between the cards
+     themselves are chosen from the same set rather than typed per rule. */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 28px;
+  --sp-7: 36px;
+  --sp-8: 48px;
+
+  /* --fs-micro is the uppercase tracking-wide label used by table heads and badges;
+     --fs-metric is the number a card is built around. */
+  --fs-micro: 11px;
+  --fs-sm: 12px;
+  --fs-md: 13px;
+  --fs-base: 14px;
+  --fs-title: 15px;
+  --fs-lg: 18px;
+  --fs-metric: 28px;
+
+  /* Inter is variable, so the weights are chosen for the optical size rather than
+     rounded to the nearest hundred: 430 is what 400 looks like on a dark ground. */
+  --fw-regular: 430;
+  --fw-medium: 530;
+  --fw-semibold: 600;
+  --fw-bold: 680;
+  --tracking: -0.01em;
+  --tracking-tight: -0.02em;
+  --tracking-caps: 0.08em;
+  --font-features: 'cv11' 1, 'ss01' 1;
+  --font-features-num: 'cv11' 1, 'ss01' 1, 'tnum' 1, 'zero' 1;
+
+  --cell-x: var(--sp-4);
+  /* The smallest thing a pointer is asked to hit. */
+  --hit: 32px;
+
+  /* Shell geometry. --content-max is wide enough for a dense table beside a filter rail. */
+  --rail-w: 76px;
+  --nav-w: 216px;
+  --topbar-h: 56px;
+  --content-max: 1600px;
+
+  /* Five durations: a hover, a state change, a panel, a page entering, a chart drawing.
+     --stagger is the delay between siblings entering together. */
+  --dur-fast: 100ms;
+  --dur: 180ms;
+  --dur-slow: 320ms;
+  --dur-enter: 420ms;
+  --dur-draw: 700ms;
+  /* The one animation that never ends: a running status's dot. Under reduced motion it
+     is zero like the rest, and a zero here is the only thing that stops it. */
+  --dur-pulse: 2400ms;
+  --stagger: 40ms;
+  --ease: cubic-bezier(0.2, 0.7, 0.3, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* One stacking order, so a popover is never argued with a sticky table head. A modal
+     sits inside its scrim and needs no level of its own. */
+  --z-raised: 1;
+  --z-sticky: 10;
+  --z-topbar: 20;
+  --z-popover: 30;
+  --z-scrim: 40;
+
+  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+
+  --color-scheme: dark;
+  color-scheme: var(--color-scheme);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0ms;
+    --dur: 0ms;
+    --dur-slow: 0ms;
+    --dur-enter: 0ms;
+    --dur-draw: 0ms;
+    --dur-pulse: 0ms;
+    --stagger: 0ms;
+  }
+}

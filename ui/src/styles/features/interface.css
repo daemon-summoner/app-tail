@@ -1,0 +1,71 @@
+/* --- network interface ---------------------------------------------------- */
+
+.tun-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+/* The interface's facts, a label column against its value. */
+.tun-facts {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.tun-facts > div {
+  display: flex;
+  gap: var(--sp-3);
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+.tun-facts dt {
+  min-width: 130px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+
+.tun-facts dd {
+  margin: 0;
+  font-size: var(--fs-md);
+  flex: 1;
+  min-width: 0;
+}
+
+/* The button sizes to its own text rather than the card, so it reads as one action
+   rather than a banner. */
+.tun-setup {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sp-2);
+}
+
+.tun-setup .hint {
+  margin: 0;
+}
+
+.tun-leftovers h3 {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.tun-leftovers ul {
+  margin: 0 0 var(--sp-3);
+  padding-left: 20px;
+  font-size: var(--fs-md);
+  color: var(--text-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.tun-leftovers li::marker {
+  color: var(--accent-3);
+}

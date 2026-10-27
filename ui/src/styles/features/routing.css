@@ -1,0 +1,143 @@
+/* The per-destination rules, on the internet page.
+
+   Order is the meaning here -- the first rule that fits a destination decides it -- so the
+   number and the two move buttons hold their own column at the left of every row, and the
+   rule itself reads across as a sentence rather than as a set of equal boxes. */
+
+.routing-rules .rule-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.routing-rules .rule-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: var(--sp-3);
+  align-items: start;
+  padding: var(--sp-3);
+  border: 1px solid var(--line-1);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  transition:
+    border-color var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+}
+
+.routing-rules .rule-row:hover {
+  border-color: var(--line-2);
+  background: var(--surface-2);
+}
+
+/* Fixed width so the numbers line up down the column: the position is the rule's
+   precedence, which is read down the list rather than row by row. */
+.routing-rules .rule-order {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-1);
+  min-width: 52px;
+}
+
+/* The precedence, in the gradient: the one number on the row that is the setting. */
+.routing-rules .rule-number {
+  font-size: var(--fs-title);
+  font-weight: var(--fw-bold);
+  font-feature-settings: var(--font-features-num);
+  background: var(--grad-accent);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.routing-rules .rule-sentence {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.routing-rules .rule-line,
+.routing-check .rule-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  align-items: center;
+}
+
+.routing-rules .rule-word {
+  font-size: var(--fs-md);
+  color: var(--text-3);
+}
+
+/* The controls are words in a sentence rather than fields in a form, so they take the width
+   of what they hold: full-width boxes would break the line after every one of them. */
+.routing-rules select,
+.routing-rules input,
+.routing-check input {
+  width: auto;
+}
+
+.routing-rules select {
+  min-width: 150px;
+  max-width: 230px;
+}
+
+.routing-rules .rule-destination {
+  flex: 1 1 200px;
+  min-width: 180px;
+  max-width: 340px;
+}
+
+/* Its own line: it is about the rule rather than part of the sentence. */
+.routing-rules .rule-note {
+  flex: 1 1 100%;
+  max-width: 420px;
+}
+
+/* Ghost buttons carry no border, which on a control this small reads as text. */
+.routing-rules .rule-order .btn {
+  border-color: var(--line-2);
+  min-width: 52px;
+}
+
+/* What the box was read as, and the agent's own sentence for the stored rule. Quiet: it
+   explains the row above rather than competing with it. */
+.routing-rules .rule-explain {
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+
+.routing-rules .rules-foot {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: center;
+  margin-top: var(--sp-3);
+}
+
+/* Asking where a destination goes is a question with an answer, not a test of the network:
+   nothing is dialled and nothing is looked up. It sits below the rules because it is read
+   against them. */
+.routing-check {
+  margin-top: var(--sp-4);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--line-1);
+}
+
+.routing-check label {
+  font-size: var(--fs-md);
+  color: var(--text-2);
+}
+
+.routing-check input {
+  flex: 0 1 320px;
+  min-width: 200px;
+}
+
+.routing-check .rule-explain {
+  margin: var(--sp-2) 0 0;
+  font-size: var(--fs-sm);
+}

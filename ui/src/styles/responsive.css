@@ -1,0 +1,44 @@
+/* --- responsive ---------------------------------------------------------- */
+
+/* The breakpoints every sheet shares, last in the cascade so a narrow-window rule
+   always wins over the wide one it corrects. Motion under reduced motion is handled in
+   motion.css, by zeroing the durations rather than by switching rules off. */
+
+@media (max-width: 900px) {
+  /* Below two full columns the auto-fit grid would leave one card stretched across a
+     width its contents were laid out for; one column is the honest answer. */
+  .deck,
+  .hero-deck {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 760px) {
+  .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .info-body {
+    max-width: min(340px, calc(100vw - 32px));
+  }
+
+  table.forwards th.optional,
+  table.forwards td.optional {
+    display: none;
+  }
+}
+
+/* Narrow enough that a panel hanging off its trigger has nowhere to go: a trigger near
+   the right edge would push its panel off the page, and there is no measuring pass to
+   catch it. Anchored to the viewport instead, where it cannot overflow by construction. */
+@media (max-width: 620px) {
+  .info-body {
+    position: fixed;
+    left: var(--sp-3);
+    right: var(--sp-3);
+    bottom: var(--sp-3);
+    top: auto;
+    width: auto;
+    max-width: none;
+  }
+}

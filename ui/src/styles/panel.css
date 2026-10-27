@@ -1,0 +1,347 @@
+/* --- bands ---------------------------------------------------------------- */
+
+.band {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+/* The band heads are the page's own structure rather than a card's, so they sit on the
+   background with no panel behind them. Small tracked capitals here and sentence case on
+   the cards is the whole hierarchy: a label above things, a name on a thing. */
+.band-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: 0 2px;
+}
+
+.band-head h2 {
+  margin: 0;
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+/* A gradient rule running off the end of the label, which is what makes a bare line of
+   text on a background read as the head of a section rather than as a stray sentence. */
+.band-head h2::after {
+  content: '';
+  display: inline-block;
+  vertical-align: middle;
+  width: var(--sp-7);
+  height: 1px;
+  margin-left: var(--sp-3);
+  background: var(--grad-rule);
+}
+
+/* --- the card deck -------------------------------------------------------- */
+
+/* Two across on a wide window, one on a narrow one, and a card that lays out columns of
+   its own takes the full width either way. auto-fit rather than a fixed count so a card
+   is never squeezed below the width its contents need.
+   Cards sharing a row share its height: two panels ending at different points read as one
+   of them having failed to finish rendering rather than as one simply having less to say. */
+.deck {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr));
+  align-items: stretch;
+  gap: var(--sp-4);
+}
+
+/* The body takes the slack, so a card with less to say ends level with its neighbour
+   instead of leaving its own border floating short of it. */
+.deck > .panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.deck > .panel > .panel-body {
+  flex: 1;
+}
+
+.deck > .panel.wide {
+  grid-column: 1 / -1;
+}
+
+/* The four heroes at the top of the dashboard are a fixed two-by-two: each is one
+   feature with its switch, and the eye should find the same one in the same place every
+   time the page opens. */
+.hero-deck {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+/* --- hero cards ----------------------------------------------------------- */
+
+/* The gear is the way from a hero to the page that holds the rest of its settings. It is
+   an icon button at the full hit size, quiet until pointed at, and it turns a quarter as
+   it lights so the hover reads as a gear rather than as a colour change. */
+.hero-gear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--hit);
+  height: var(--hit);
+  border-radius: var(--radius-sm);
+  color: var(--text-3);
+  text-decoration: none;
+  transition:
+    color var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+}
+
+.hero-gear svg {
+  width: 18px;
+  height: 18px;
+  transition: transform var(--dur-slow) var(--ease-spring);
+}
+
+.hero-gear:hover {
+  color: var(--accent-1);
+  background: var(--accent-1-wash);
+}
+
+.hero-gear:hover svg {
+  transform: rotate(90deg);
+}
+
+/* A switch that belongs to a hero's body rather than to its head: the kill switch under
+   the egress picker. The name leads, the switch sits against the right edge. */
+.hero-switch {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-top: var(--sp-4);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--line-1);
+}
+
+.hero-switch-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-medium);
+  color: var(--text-2);
+}
+
+/* --- the reach strip ------------------------------------------------------ */
+
+/* Every tile in the strip, always: a mode nobody can see is a mode only somebody who
+   already knows about it can turn on. */
+.reach-modes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+  gap: var(--sp-3);
+}
+
+/* A tile is either a link in its own right, when it names a connection, or a row holding
+   a link, a state and a switch, when it names a path. Both carry the lit edge. */
+.reach-mode {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-height: 56px;
+  padding: var(--sp-3) var(--sp-4) var(--sp-3) var(--sp-5);
+  background: var(--surface-1);
+  border: 1px solid var(--line-1);
+  border-radius: var(--radius-md);
+  box-shadow: var(--elev-1);
+  text-decoration: none;
+  color: inherit;
+  overflow: hidden;
+  transition:
+    border-color var(--dur) var(--ease),
+    background var(--dur) var(--ease),
+    transform var(--dur) var(--ease-out);
+}
+
+/* A lit edge down the side, dim until the tile is pointed at. Three tiles in a row need
+   something other than their text to tell a reader they are three separate things. */
+.reach-mode::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--grad-accent);
+  opacity: 0.35;
+  transition: opacity var(--dur) var(--ease);
+}
+
+.reach-mode:hover {
+  border-color: var(--line-3);
+  background: var(--surface-2);
+  transform: translateY(-1px);
+}
+
+.reach-mode:hover::before {
+  opacity: 1;
+}
+
+.reach-mode-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+  color: var(--text-1);
+  text-decoration: none;
+  transition: color var(--dur) var(--ease);
+}
+
+a.reach-mode-name:hover {
+  color: var(--accent-1);
+}
+
+/* The path with no switch: forwards run whenever the agent does. Set like a switch's
+   label so the row lines up with the two that have one. */
+.reach-mode-always {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+/* The one row whose switch reconnects the node says so on a second line, under
+   everything else in the tile. */
+.reach-mode-hint {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+
+.reach-mode:has(.reach-mode-hint) {
+  flex-wrap: wrap;
+  row-gap: var(--sp-1);
+}
+
+/* --- a module that is off ------------------------------------------------- */
+
+/* Off is not a fault, so it reads as quiet prose rather than as a notice. The card is
+   present either way -- a feature reachable only once it is on is one nobody finds --
+   and this is the whole body until its switch is flipped. */
+.module-off {
+  margin: 0;
+  font-size: var(--fs-md);
+  line-height: 1.5;
+  color: var(--text-3);
+}
+
+/* Facts about the install: read-only, so they sit apart from the controls above them. */
+.app-facts {
+  margin-top: var(--sp-4);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--line-1);
+}
+
+/* --- small parts --------------------------------------------------------- */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  padding: 3px 7px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--line-2);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.badge.udp {
+  border-color: var(--badge-udp-line);
+  color: var(--badge-udp-text);
+}
+
+.badge.tcp {
+  border-color: var(--badge-tcp-line);
+  color: var(--badge-tcp-text);
+}
+
+.badge.both {
+  border-color: var(--badge-both-line);
+  color: var(--badge-both-text);
+}
+
+.badge.to_tailnet {
+  border-color: var(--badge-tailnet-line);
+  color: var(--warn-text);
+}
+
+/* A dot alone would carry meaning by colour only, so the label always ships with it. */
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px var(--sp-2) 3px 7px;
+  border: 1px solid var(--line-1);
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.status .dot {
+  position: relative;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-3);
+  flex: none;
+}
+
+/* The live dot glows and rings once every couple of seconds. It is the only motion on
+   an idle page, and it is what separates "connected" from a screenshot of "connected". */
+.status.running .dot {
+  background: var(--ok);
+  box-shadow: var(--glow-dot-ok);
+  animation: pulse-dot var(--dur-pulse) var(--ease) infinite;
+}
+
+.status.error .dot {
+  background: var(--danger);
+  box-shadow: var(--glow-dot-danger);
+}
+
+.status.pending .dot {
+  background: var(--warn);
+  box-shadow: var(--glow-dot-warn);
+}
+
+/* Off is a state, not a fault: the dot keeps the neutral fill and loses the glow the
+   live states carry, so a switched-off mode reads as quiet rather than broken. */
+.status.off {
+  color: var(--text-3);
+}
+
+/* The chip is tinted by what it says. The word is still there -- the colour is a second
+   channel on top of it, never the only one -- but a page of grey chips makes a reader
+   read every one of them to find the one that is not fine. */
+.status.running {
+  color: var(--tone-ok);
+  background: var(--tone-ok-wash);
+  border-color: var(--tone-ok-line);
+}
+
+.status.error {
+  color: var(--tone-danger);
+  background: var(--tone-danger-wash);
+  border-color: var(--tone-danger-line);
+}
+
+.status.pending {
+  color: var(--tone-warn);
+  background: var(--tone-warn-wash);
+  border-color: var(--tone-warn-line);
+}

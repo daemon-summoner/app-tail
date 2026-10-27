@@ -1,0 +1,144 @@
+/* --- table --------------------------------------------------------------- */
+
+table.forwards,
+table.activity {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+/* The head stays under the top bar while a long table scrolls, so a column of numbers
+   never loses the word that says what they are. Filled, since sticky glass over rows of
+   text is unreadable. */
+table.forwards th,
+table.activity th {
+  position: sticky;
+  top: var(--topbar-h);
+  z-index: var(--z-sticky);
+  text-align: left;
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-3);
+  padding: var(--sp-3) var(--cell-x);
+  background: var(--surface-1-solid);
+  border-bottom: 1px solid var(--line-2);
+  white-space: nowrap;
+}
+
+table.forwards td,
+table.activity td {
+  padding: var(--sp-3) var(--cell-x);
+  border-bottom: 1px solid var(--line-1);
+  vertical-align: middle;
+  transition: box-shadow var(--dur-fast) var(--ease);
+}
+
+table.forwards tr:last-child td,
+table.activity tr:last-child td {
+  border-bottom: none;
+}
+
+table.forwards tbody tr,
+table.activity tbody tr {
+  transition: background var(--dur-fast) var(--ease);
+}
+
+table.forwards tbody tr:hover,
+table.activity tbody tr:hover {
+  background: var(--row-hover);
+}
+
+/* The lit edge on the row under the pointer: an inset on its first cell, so the row
+   reads as picked out without a border that would shift the columns. */
+table.forwards tbody tr:hover td:first-child,
+table.activity tbody tr:hover td:first-child {
+  box-shadow: inset 2px 0 0 var(--accent-1);
+}
+
+table.forwards tr.disabled td {
+  opacity: 0.52;
+}
+
+td.numeric {
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  font-feature-settings: var(--font-features-num);
+  color: var(--text-2);
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* The heading over a column of figures sits at the right, where the figures end. */
+th.numeric {
+  text-align: right;
+}
+
+td.actions {
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* Bare tables carry their own edges, so a notice about one sits in the same inset the
+   rows use. */
+.table-notice {
+  padding: var(--sp-4) var(--cell-x);
+}
+
+.forward-badges {
+  display: flex;
+  gap: var(--sp-2);
+  margin-top: 5px;
+}
+
+/* Why a forward that is switched on is not yet running, under its status dot. */
+.forward-waiting {
+  margin-top: 3px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+
+.route {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  flex-wrap: wrap;
+}
+
+.route .arrow {
+  color: var(--accent-3);
+  flex: none;
+}
+
+.route .local {
+  color: var(--text-1);
+}
+
+.route .remote {
+  color: var(--text-2);
+}
+
+.forward-name {
+  font-weight: var(--fw-medium);
+}
+
+.forward-error {
+  display: block;
+  margin-top: 4px;
+  font-size: var(--fs-sm);
+  color: var(--danger-text);
+  max-width: 42ch;
+}
+
+/* A warning is about a forward that is working, so it reads as a caution rather than as the
+   failure the error line above describes. */
+.forward-warning {
+  display: block;
+  margin-top: 4px;
+  font-size: var(--fs-sm);
+  color: var(--warn-text);
+  max-width: 42ch;
+}

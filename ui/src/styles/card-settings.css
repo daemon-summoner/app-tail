@@ -1,0 +1,82 @@
+/* --- settings on a card --------------------------------------------------- */
+
+/* Set apart from the readout above it by a rule rather than by distance: the same card
+   answers "what is this doing" and "what do I want it to do", and the two are read at
+   different times. */
+.card-settings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--line-1);
+}
+
+/* Two across where there is room. A full-width card with one column of controls leaves
+   most of itself empty, and a text box stretched to 1000px invites a value nothing that
+   long would ever be. */
+.card-settings-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
+  align-items: start;
+  gap: var(--sp-4) var(--sp-5);
+}
+
+/* A switch is a statement, not a box: it reads as one line and does not want a column of
+   its own beside a half-empty neighbour. */
+.card-settings-fields > .field:has(.switch-row) {
+  grid-column: 1 / -1;
+}
+
+/* An address or a port is a short value. Letting the control run the width of the card
+   suggests otherwise, and makes the label above it hard to associate with. */
+.card-settings-fields input[type='text'],
+.card-settings-fields input[type='number'],
+.card-settings-fields input[type='password'],
+.card-settings-fields select {
+  max-width: 460px;
+}
+
+.card-settings .advanced {
+  border-top: none;
+  padding-top: 0;
+}
+
+/* How many settings the fold is holding, so a closed fold is never a surprise. */
+.card-settings .advanced > summary .count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-3);
+  border: 1px solid var(--line-2);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  font-feature-settings: var(--font-features-num);
+  color: var(--text-2);
+}
+
+/* Only present while something is waiting on it, so a card with nothing to save carries
+   no button inviting a click that would do nothing. */
+.card-settings-save {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-3);
+  animation: fade-in var(--dur) var(--ease-out) both;
+}
+
+/* A column's name and the button explaining what the column means, on one line above
+   the answer itself. */
+.list-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.list-head h3 {
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+}

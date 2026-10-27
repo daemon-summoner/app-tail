@@ -1,0 +1,210 @@
+/* --- tailnet proxy -------------------------------------------------------- */
+
+.proxy-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.proxy-addresses {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+/* The URL is what the user came here to copy, so it holds the full row and its
+   explanation wraps beneath rather than competing with it. */
+.proxy-address {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.proxy-address-label {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--text-2);
+}
+
+.proxy-address code {
+  overflow-wrap: anywhere;
+  color: var(--text-1);
+}
+
+.proxy-address-hint {
+  grid-column: 2 / -1;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+
+.proxy-counters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-6);
+  margin: 0;
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--line-1);
+}
+
+.proxy-counters div {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+
+.proxy-counters dt {
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+
+.proxy-counters dd {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: var(--fs-md);
+  font-feature-settings: var(--font-features-num);
+  color: var(--text-1);
+}
+
+/* A value stored here that the tailnet node is not carrying yet. */
+.proxy-counters dd.stale {
+  color: var(--warn-text);
+}
+
+/* The devices the tailnet offers, listed rather than tabulated: the name and whether it
+   can be reached is everything a reader needs before going to the picker. */
+.exit-node-candidates {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: var(--sp-3) 0 0;
+  list-style: none;
+  border-top: 1px solid var(--line-1);
+}
+
+.exit-node-candidates li {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.exit-node-candidates li.current .exit-node-name {
+  font-weight: var(--fw-semibold);
+  color: var(--text-1);
+}
+
+.exit-node-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--fs-md);
+  color: var(--text-2);
+}
+
+.exit-node-inuse {
+  font-size: var(--fs-sm);
+  color: var(--accent-1);
+}
+
+/* The three route lists side by side. Reading them against each other is the whole
+   point: what this device offers and what the tailnet approved are different facts, and
+   the gap between them is the usual reason a route carries nothing. */
+.routes-lists {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: var(--sp-4) var(--sp-6);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--line-1);
+}
+
+.routes-list h3 {
+  margin: 0;
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.routes-list .hint {
+  margin: 2px 0 var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+
+.routes-list ul {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--fs-md);
+}
+
+.routes-empty {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+
+.routes-check {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: var(--sp-3) 0 0;
+  list-style: none;
+  border-top: 1px solid var(--line-1);
+  font-size: var(--fs-md);
+}
+
+.routes-check li {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.proxy-probe {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.proxy-probe label {
+  grid-column: 1 / -1;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--text-2);
+}
+
+.proxy-probe .hint {
+  grid-column: 1 / -1;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+
+/* This machine's own settings are a different subject from the proxy above them, so
+   they are ruled off rather than reading as one more proxy detail. */
+.proxy-system {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--line-1);
+}
+
+.proxy-system-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.proxy-system-head h3 {
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking);
+}

@@ -1,0 +1,100 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--surface-0);
+  color: var(--text-1);
+  font: var(--fw-regular) var(--fs-base) / 1.5 var(--sans);
+  font-feature-settings: var(--font-features);
+  letter-spacing: var(--tracking);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* The lit backdrop sits on the shell rather than on body so it scrolls with nothing:
+   it is the room the page is in, not part of the page. */
+.shell {
+  background-image: var(--grid-dots), var(--grad-page);
+  background-size: 22px 22px, auto;
+  background-attachment: fixed;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+}
+
+a {
+  color: var(--accent-1);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+h1,
+h2,
+h3 {
+  letter-spacing: var(--tracking-tight);
+}
+
+/* Never remove the focus ring; this app is fully keyboard operable. The ring is a
+   shadow rather than an outline so it follows a pill's curve and stays visible over a
+   gradient fill and over the black page alike. */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--radius-sm);
+}
+
+::selection {
+  background: var(--accent-1-wash);
+  color: var(--text-1);
+}
+
+/* The scrollbars are part of the page at this contrast: a bright system bar down the
+   side of a black column is the first thing an eye lands on. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-3) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--line-2);
+  border-radius: var(--radius-pill);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--line-3);
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Addresses, ports and names are what a reader of this app reads most, so they are set
+   in the mono face at a size that sits on the same line as the text around them. */
+.mono {
+  font-family: var(--mono);
+  font-size: 0.92em;
+  font-feature-settings: var(--font-features-num);
+  letter-spacing: 0;
+}

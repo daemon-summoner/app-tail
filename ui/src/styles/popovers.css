@@ -1,0 +1,124 @@
+/* --- info popovers -------------------------------------------------------- */
+
+/* The panel hangs off this wrapper rather than off the page, so it needs no measuring
+   pass to find its trigger and cannot drift away from it while the page scrolls. */
+.info {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+
+.info-trigger {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-3);
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition:
+    color var(--dur) var(--ease),
+    background var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
+}
+
+.info-trigger:hover,
+.info-trigger[aria-expanded='true'] {
+  color: var(--accent-1);
+  background: var(--accent-1-wash);
+  box-shadow: var(--glow-1);
+}
+
+.info-trigger:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* Glass over the card it hangs from, so the card is still there behind the explanation
+   of it. */
+.info-body {
+  position: absolute;
+  top: calc(100% + var(--sp-2));
+  z-index: var(--z-popover);
+  width: max-content;
+  max-width: min(340px, 78vw);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--glass-strong);
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-popover);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-regular);
+  font-style: normal;
+  line-height: 1.5;
+  letter-spacing: var(--tracking);
+  text-transform: none;
+  color: var(--text-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  cursor: auto;
+  white-space: normal;
+  animation: pop-in var(--dur) var(--ease-out) both;
+}
+
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .info-body {
+    background: var(--glass);
+    backdrop-filter: saturate(140%) blur(var(--glass-blur));
+    -webkit-backdrop-filter: saturate(140%) blur(var(--glass-blur));
+  }
+}
+
+/* A trigger sitting near the right edge of its card would push the panel off the page
+   hanging from the left, so the side it hangs from is the caller's to choose. */
+.info-body.start {
+  left: 0;
+}
+
+.info-body.end {
+  right: 0;
+}
+
+.info-body p {
+  margin: 0;
+}
+
+.info-list {
+  margin: 0;
+  padding-left: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+/* --- shared hint ---------------------------------------------------------- */
+
+/* Scoped variants elsewhere already style this inside a field or a list. This is the
+   unscoped rule, for the hints that sit directly in a card body. */
+.hint {
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--text-3);
+}
+
+/* --- confirm dialog ------------------------------------------------------- */
+
+.modal.confirm {
+  width: min(460px, calc(100vw - 32px));
+}
+
+.modal.confirm .overlay-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  color: var(--text-2);
+}
+
+.modal.confirm .overlay-body p {
+  margin: 0;
+}

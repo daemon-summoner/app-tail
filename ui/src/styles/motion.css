@@ -1,0 +1,158 @@
+/* --- motion ------------------------------------------------------------- */
+
+/* Every animation on the page, in one place. A sheet that wants something to move
+   names a keyframe from here and a duration from the tokens; none writes its own
+   timing. Under reduced motion every duration token is zero, so each of these plays
+   instantly rather than being switched off one rule at a time -- the end state is the
+   same either way, which is what makes that safe. */
+
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes chart-reveal {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 var(--pulse-ok);
+  }
+  70% {
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+
+/* The page's content enters as one, then its cards rise one after another. The delay
+   comes from the card's position, so no card carries an inline style to say when. The
+   fill is backwards only: a transform still held after the run would make the card the
+   containing block of any dialog it opens, and the scrim would cover the card alone. */
+.content {
+  animation: page-in var(--dur-enter) var(--ease-out) backwards;
+}
+
+.content > *,
+.deck > * {
+  animation: rise var(--dur-enter) var(--ease-out) backwards;
+  animation-delay: calc(var(--stagger) * var(--i, 0));
+}
+
+.content > :nth-child(1) {
+  --i: 0;
+}
+.content > :nth-child(2) {
+  --i: 1;
+}
+.content > :nth-child(3) {
+  --i: 2;
+}
+.content > :nth-child(4) {
+  --i: 3;
+}
+.content > :nth-child(5) {
+  --i: 4;
+}
+.content > :nth-child(n + 6) {
+  --i: 5;
+}
+
+.deck > :nth-child(1) {
+  --i: 0;
+}
+.deck > :nth-child(2) {
+  --i: 1;
+}
+.deck > :nth-child(3) {
+  --i: 2;
+}
+.deck > :nth-child(n + 4) {
+  --i: 3;
+}
+
+/* Under reduced motion nothing on the page moves, and nothing animates in: a zero
+   duration plays a keyframe's end state at once. Transitions are kept at zero too, so a
+   toggle still lands where it was going. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0ms;
+    animation-delay: 0ms;
+    transition-duration: 0ms;
+  }
+}

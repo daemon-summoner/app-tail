@@ -1,0 +1,64 @@
+# app-tail as a headless bridge node.
+#
+# Before the first `docker compose up -d --build`, write the credential Compose
+# mounts below (the directory is gitignored and excluded from the build context):
+#
+#   mkdir -p secrets && printf '%s' 'tskey-client-...' > secrets/app-tail-oauth
+#   chmod 600 secrets/app-tail-oauth
+#
+# network_mode: host is deliberate. The dashboard API binds loopback only, so it must
+# stay reachable from the host and nowhere else. Host networking keeps 127.0.0.1:8377 on
+# the host's own loopback; it is NOT published with `ports:`. The API needs a token, but
+# publishing it would still expose the agent that holds your tailnet identity to anything
+# that can reach the host. Host mode also lets a to_local forward serve the host's other
+# services directly. (Linux only; on Docker Desktop for macOS/Windows, drive the node via
+# `docker exec` instead.)
+#
+# The dashboard signs in with a one-time link. Print one with
+#
+#   docker exec <container> app-tail dashboard --print
+services:
+  app-tail:
+    build: .
+    image: app-tail
+    container_name: app-tail
+    network_mode: host
+    restart: unless-stopped
+    # The node is userspace tsnet -- no TUN device, no routing table changes -- and it
+    # runs as uid 10001 binding ports above 1024, so it needs no capability at all. A
+    # forward on a privileged port (< 1024) is what this rules out; use a high port and
+    # redirect on the host instead of handing the container CAP_NET_BIND_SERVICE.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # A ceiling, not a tuning target: it turns a leak or a runaway forward into a
+    # restart instead of an unresponsive host.
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 512M
+          pids: 256
+    volumes:
+      # Persist the tailnet identity and config so a container replacement keeps the
+      # same device instead of enrolling a fresh one.
+      - app-tail-data:/data
+    secrets:
+      - app-tail-oauth
+    environment:
+      # An unattended node authenticates from a credential rather than a browser.
+      # Supply exactly one: a tagged auth key, or the OAuth secret file below.
+      APPTAIL_OAUTH_CLIENT_SECRET_FILE: /run/secrets/app-tail-oauth
+      APPTAIL_TAGS: tag:app-tail
+
+# A Compose secret rather than a bind mount. A missing bind source is created as a
+# directory by a Linux daemon, and the node then fails at auth time with "is a
+# directory" -- a message that points at the credential, not at the mount. This
+# refuses to create the container at all, naming the absent path.
+secrets:
+  app-tail-oauth:
+    file: ./secrets/app-tail-oauth
+
+volumes:
+  app-tail-data:

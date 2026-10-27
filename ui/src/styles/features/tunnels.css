@@ -1,0 +1,84 @@
+/* The connections section: the private networks this app is attached to.
+
+   Everything here is a list of facts about one connection. The tiles and rows that lead
+   to a connection reuse the mode strip's own shapes, because they are the same thing --
+   a named thing with a state, that is a link to its page -- and a second set of rules
+   for it would be two shapes drifting apart. */
+
+/* One connection's facts, a label column against its value. */
+.tunnel-facts {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.tunnel-facts > div {
+  display: flex;
+  gap: var(--sp-3);
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+.tunnel-facts dt {
+  min-width: 130px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+
+.tunnel-facts dd {
+  margin: 0;
+  font-size: var(--fs-md);
+  flex: 1;
+  min-width: 0;
+}
+
+/* What a connection does not carry, listed under its facts. Not a fault and never
+   cleared, so it reads as quiet prose rather than as a notice. */
+.tunnel-limits {
+  margin: var(--sp-3) 0 0;
+  padding-left: 1.1rem;
+  font-size: var(--fs-md);
+  line-height: 1.5;
+  color: var(--text-3);
+}
+
+.tunnel-limits li::marker {
+  color: var(--accent-3);
+}
+
+/* The connections sharing this machine's internet traffic, one row each. The set is not
+   one thing: a member that is down has moved its share to the others, and the row is
+   where that is visible. */
+.egress-members {
+  margin: 0 0 var(--sp-3);
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.egress-members li {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+.egress-members .egress-member-name {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-medium);
+  min-width: 130px;
+}
+
+/* The position in a chain, which is the setting rather than a decoration of it: the first
+   connection sees who you are and the last sees where you went. Fixed width so the hops read
+   down the column in order. */
+.egress-members .egress-member-hop {
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  font-feature-settings: var(--font-features-num);
+  color: var(--accent-3);
+  min-width: 58px;
+}

@@ -1,0 +1,52 @@
+{
+  "settings": {
+    "hostname": "",
+    "stateDir": ".",
+    "uiListenAddr": "127.0.0.1:0",
+    "authKey": "",
+    "advancedNetworking": false,
+    "controlURL": "",
+    "oauthClientSecret": "",
+    "oauthClientSecretFile": "",
+    "tags": [
+      "tag:app-tail"
+    ],
+    "ephemeral": false,
+    "hostnameTemplate": "app-tail-{hostname}",
+    "advertiseTagsOnLogin": false,
+    "proxy.enabled": false,
+    "proxy.listenAddr": "127.0.0.1:1080",
+    "proxy.scope": "tailnet",
+    "proxy.requireToken": false,
+    "proxy.token": "",
+    "proxy.dialTimeoutSec": 30,
+    "proxy.system": false,
+    "automap.enabled": false,
+    "automap.ports": [
+      "22"
+    ],
+    "automap.max": 32,
+    "automap.portBase": 14000,
+    "routes.enabled": false,
+    "routes.accept": false,
+    "routes.advertiseExitNode": false,
+    "exitNode.enabled": false,
+    "exitNode.nodeId": "",
+    "exitNode.auto": false,
+    "exitNode.allowLanAccess": false,
+    "exitNode.onFailure": "hold",
+    "exitNode.rotate.enabled": false,
+    "exitNode.rotate.strategy": "round_robin",
+    "exitNode.rotate.intervalSec": 900,
+    "exitNode.rotate.pauseOnActive": true,
+    "exitNode.rotate.maxDeferrals": 3,
+    "startAtLogin": false,
+    "showTray": true,
+    "autoOpenDashboard": true,
+    "udpSessionTimeoutSec": 90,
+    "udpBufferBytes": 65535,
+    "machineId": "745bde14"
+  },
+  "forwards": null,
+  "presets": null
+}

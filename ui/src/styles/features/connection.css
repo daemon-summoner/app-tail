@@ -1,0 +1,107 @@
+/* --- connection ---------------------------------------------------------- */
+
+.connection {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-4) var(--sp-5);
+  flex-wrap: wrap;
+}
+
+.connection .identity {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+
+.connection .detail {
+  color: var(--text-2);
+  font-size: var(--fs-md);
+  display: flex;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+/* Each fact in its own chip. The row is a name, two addresses, an owner and a tag with
+   nothing but whitespace between them otherwise, which reads as one long broken string. */
+.connection .detail > * {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 24px;
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--line-1);
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.connection .detail > .mono {
+  color: var(--text-1);
+}
+
+/* A notice about the connection, in the same inset the row above it uses. */
+.connection-notice {
+  padding: 0 var(--sp-5) var(--sp-4);
+}
+
+.login {
+  display: flex;
+  gap: var(--sp-6);
+  align-items: flex-start;
+  padding: var(--sp-5);
+  border-top: 1px solid var(--line-1);
+  flex-wrap: wrap;
+}
+
+/* The code is scanned by a phone camera, which wants dark modules on a light ground: this
+   is the one white patch on the page, and it stays white. */
+.login .qr {
+  background: var(--qr-bg);
+  padding: var(--sp-3);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--glow-1);
+  line-height: 0;
+  flex: none;
+}
+
+.login .instructions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  min-width: 260px;
+  flex: 1;
+}
+
+.login .instructions p {
+  margin: 0;
+  color: var(--text-2);
+}
+
+.auth-url {
+  display: block;
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  color: var(--accent-1);
+  word-break: break-all;
+  background: var(--accent-1-wash);
+  border: 1px solid var(--accent-1-line);
+  border-radius: var(--radius-sm);
+  padding: var(--sp-2) var(--sp-3);
+  text-decoration: none;
+  transition: box-shadow var(--dur) var(--ease);
+}
+
+.auth-url:hover {
+  text-decoration: underline;
+  box-shadow: var(--glow-1);
+}
+
+.auth-url:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}

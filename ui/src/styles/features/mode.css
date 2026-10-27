@@ -1,0 +1,106 @@
+/* How app-tail runs here: three cards, one chosen.
+
+   The cards are wide enough to carry a sentence each, because the sentence is the point --
+   what separates these three is what each one does to the machine, and a reader choosing
+   between them on three words alone would be guessing. */
+
+.mode-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
+  gap: var(--sp-3);
+}
+
+/* The radio and the two lines beside it, laid out on the label itself: the name and its
+   sentence are the label's own text, and wrapping them in a box of their own would put
+   the text far enough from the control that a checker can no longer tell they name it. */
+.mode-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: baseline;
+  column-gap: var(--sp-3);
+  row-gap: 5px;
+  padding: var(--sp-4);
+  background: var(--surface-1);
+  border: 1px solid var(--line-1);
+  border-radius: var(--radius-md);
+  box-shadow: var(--elev-1);
+  overflow: hidden;
+  cursor: pointer;
+  transition:
+    border-color var(--dur) var(--ease),
+    background var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease),
+    transform var(--dur) var(--ease-out);
+}
+
+/* A gradient edge along the top, drawn in full only on the chosen card. */
+.mode-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 2px;
+  background: var(--grad-accent-h);
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+
+.mode-card:hover {
+  border-color: var(--line-3);
+  background: var(--surface-2);
+  transform: translateY(-1px);
+}
+
+/* The chosen card is marked by its border as well as by the radio, because a radio in a
+   grid of cards is a small mark to carry the whole answer. */
+.mode-card.chosen {
+  border-color: var(--accent-1-line);
+  background: var(--accent-1-wash);
+  box-shadow: var(--glow-1);
+}
+
+.mode-card.chosen::before {
+  opacity: 1;
+}
+
+.mode-card:focus-within {
+  box-shadow: var(--focus-ring);
+}
+
+.mode-card input {
+  margin: 2px 0 0;
+  accent-color: var(--accent-1);
+  flex: none;
+}
+
+.mode-card-name {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+  min-width: 0;
+}
+
+.mode-card.chosen .mode-card-name {
+  color: var(--text-1);
+}
+
+/* Under the name rather than under the radio, so the sentence reads as the name's
+   explanation rather than as a second, unrelated line. */
+.mode-card-help {
+  grid-column: 2;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--text-3);
+  min-width: 0;
+}
+
+.mode-card.chosen .mode-card-help {
+  color: var(--text-2);
+}
+
+/* The switches the cards are shortcuts for, in a row under them. */
+.mode-switches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3) var(--sp-5);
+  margin-top: var(--sp-3);
+}

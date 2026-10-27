@@ -1,0 +1,30 @@
+version: 2
+updates:
+  # Weekly rather than daily: at this dependency count a daily cadence produces more
+  # pull requests than it does signal.
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # tailscale.com pulls a large slice of golang.org/x with it, so bumping those
+      # one PR at a time produces conflicts rather than reviewable changes.
+      golang-x:
+        patterns: ["golang.org/x/*"]
+
+  - package-ecosystem: npm
+    directory: /ui
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      react:
+        patterns: ["react", "react-dom", "@types/react", "@types/react-dom"]
+      tooling:
+        patterns: ["eslint*", "typescript*", "vite*", "@vitejs/*"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

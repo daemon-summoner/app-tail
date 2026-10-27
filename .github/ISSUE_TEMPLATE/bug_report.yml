@@ -1,0 +1,139 @@
+name: Bug report
+description: Something app-tail does that it should not, or does not do that it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please do not report a security vulnerability here. Report it privately through
+        [Security > Advisories > Report a vulnerability](https://github.com/sellitus/app-tail/security/advisories/new)
+        instead, which keeps it out of public view until there is a fix.
+        [SECURITY.md](https://github.com/sellitus/app-tail/blob/main/SECURITY.md) says what is in scope.
+
+        Everything you paste below is public. Before you submit, replace device names,
+        tailnet names, IP addresses, hostnames, account emails, auth keys, private keys,
+        passwords and sign-in links with something like `<device-1>` or `<redacted>`.
+        Logs and reports can name your devices and networks.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what happened, and what you expected instead.
+      placeholder: |
+        I turned on the network-interface mode from the dashboard.
+        The mode card went back to Standalone after a few seconds with no message.
+        I expected it to either come up or say why it could not.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: The shortest sequence that shows it. A CLI command is easier to act on than a description of a click.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Windows
+        - Linux
+        - Linux (Docker image)
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: os-version
+    attributes:
+      label: OS version
+      placeholder: "macOS 15.3 / Windows 11 23H2 / Ubuntu 24.04"
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: app-tail version
+      description: The output of `app-tail version`.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: How app-tail was installed
+      options:
+        - Release download, run from the unpacked folder
+        - Release download, installed with `app-tail install` (Windows, Program Files)
+        - Built from source
+        - Docker image
+    validations:
+      required: true
+
+  - type: dropdown
+    id: connections
+    attributes:
+      label: Connection types in use
+      description: Every kind of connection configured on this machine, not only the one that misbehaved.
+      multiple: true
+      options:
+        - Tailscale
+        - WireGuard
+        - OpenVPN
+        - None yet
+    validations:
+      required: true
+
+  - type: input
+    id: mode
+    attributes:
+      label: Run mode
+      description: >
+        The output of `app-tail settings get mode.primary`. It needs a running agent;
+        if app-tail will not start, say so here instead.
+      placeholder: "standalone / proxy / interface / fabric"
+    validations:
+      required: false
+
+  - type: textarea
+    id: health
+    attributes:
+      label: Health output
+      description: >
+        The output of `app-tail health --json`. It reports whether the agent is
+        ready to carry traffic and is usually where the answer is. Redact device
+        names and addresses before pasting.
+      render: json
+    validations:
+      required: false
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Machine report
+      description: >
+        For anything involving the network-interface mode, the root helper, OpenVPN,
+        System DNS or a machine left in a bad state: the output of
+        `app-tail tun doctor --json`. It needs no running agent. Redact interface
+        names and addresses if they identify you.
+      render: json
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log lines
+      description: >
+        From `app-tail log`, or `app-tail.log` in the state directory for the Windows
+        windowed build. Paste the lines around the failure, not the whole log, and
+        redact device names, addresses and anything that looks like a key.
+      render: text
+    validations:
+      required: false

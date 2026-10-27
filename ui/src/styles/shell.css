@@ -1,0 +1,279 @@
+/* --- shell -------------------------------------------------------------- */
+
+/* The frame: a rail of sections, a second column where a section has pages of its own,
+   and the content beside them. The rail and the nav are fixed-width and scroll on their
+   own, so a long page never carries the navigation off the top of the window with it.
+   Both columns are glass over the lit black behind them rather than filled, so the room
+   the page sits in shows through at the edges. */
+
+.shell {
+  display: grid;
+  grid-template-columns: var(--rail-w) auto minmax(0, 1fr);
+  height: 100%;
+}
+
+.rail {
+  grid-column: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding: var(--sp-3) var(--sp-2);
+  background: var(--glass);
+  border-right: 1px solid var(--line-1);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .rail,
+  .subnav {
+    backdrop-filter: saturate(140%) blur(var(--glass-blur));
+    -webkit-backdrop-filter: saturate(140%) blur(var(--glass-blur));
+  }
+}
+
+.rail-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--hit);
+  padding: 10px 2px 8px;
+  border-radius: var(--radius-sm);
+  color: var(--text-3);
+  text-decoration: none;
+  text-align: center;
+  transition:
+    color var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+}
+
+.rail-item:hover {
+  background: var(--surface-2);
+  color: var(--text-1);
+}
+
+/* The current section is marked three times over: the lit bar against the rail's edge,
+   the colour, and the aria-current the link carries. None of them is the only signal. */
+.rail-item.here {
+  background: var(--accent-1-wash);
+  color: var(--accent-1);
+}
+
+.rail-item.here::before {
+  content: '';
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 22px;
+  border-radius: var(--radius-pill);
+  background: var(--grad-accent);
+  box-shadow: var(--glow-1);
+}
+
+.rail-item .nav-icon {
+  transition: transform var(--dur) var(--ease-spring);
+}
+
+.rail-item:hover .nav-icon {
+  transform: translateY(-1px) scale(1.06);
+}
+
+.rail-label {
+  font-size: 10px;
+  font-weight: var(--fw-medium);
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+}
+
+.nav-icon {
+  width: 21px;
+  height: 21px;
+  flex: none;
+}
+
+.subnav {
+  grid-column: 2;
+  width: var(--nav-w);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sp-3) var(--sp-2);
+  background: var(--glass);
+  border-right: 1px solid var(--line-1);
+  overflow-y: auto;
+}
+
+.subnav-head {
+  margin: var(--sp-2) var(--sp-3) var(--sp-3);
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.subnav-item {
+  position: relative;
+  min-height: var(--hit);
+  padding: 8px var(--sp-3) 8px var(--sp-4);
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  text-decoration: none;
+  font-size: var(--fs-md);
+  transition:
+    color var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+}
+
+.subnav-item:hover {
+  background: var(--surface-2);
+  color: var(--text-1);
+}
+
+.subnav-item.here {
+  background: var(--accent-1-wash);
+  color: var(--accent-1);
+  font-weight: var(--fw-medium);
+}
+
+/* The same lit bar as the rail's, inside the pill's left edge. */
+.subnav-item.here::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 16px;
+  border-radius: var(--radius-pill);
+  background: var(--grad-accent);
+  box-shadow: var(--glow-1);
+}
+
+.shell-body {
+  grid-column: 3;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow-y: auto;
+}
+
+/* Frosted rather than filled: the content scrolling under the bar stays faintly visible,
+   which is what tells a reader the page moved rather than swapped. */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-topbar);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-height: var(--topbar-h);
+  padding: var(--sp-2) var(--sp-5);
+  background: var(--glass-strong);
+  border-bottom: 1px solid var(--line-1);
+}
+
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .topbar {
+    background: var(--glass);
+    backdrop-filter: saturate(160%) blur(var(--glass-blur));
+    -webkit-backdrop-filter: saturate(160%) blur(var(--glass-blur));
+  }
+}
+
+.topbar h1 {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--tracking-tight);
+}
+
+/* The name of the app, set in the accent it is drawn in. It is the one piece of type on
+   the page that is allowed to be decorative. */
+.topbar .brand {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--tracking);
+  background: var(--grad-accent);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.content {
+  width: 100%;
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: var(--sp-5) var(--sp-5) 64px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+
+/* Left-aligned rather than centred: a narrow column floating in the middle of a wide
+   window reads as detached from the nav that led to it. */
+.content.narrow {
+  max-width: 1080px;
+  margin-left: 0;
+}
+
+/* Under a phone's width the columns stop being columns: the rail lies across the top as a
+   row of the same links, and the second column follows it. Nothing is hidden behind a
+   menu button. */
+@media (max-width: 720px) {
+  .shell {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+  }
+
+  .rail {
+    flex-direction: row;
+    justify-content: space-around;
+    border-right: none;
+    border-bottom: 1px solid var(--line-1);
+  }
+
+  .rail-item {
+    flex: 1;
+  }
+
+  /* The lit bar moves under the label, where a row of links has an edge to sit against. */
+  .rail-item.here::before {
+    left: 50%;
+    top: auto;
+    bottom: -4px;
+    transform: translateX(-50%);
+    width: 22px;
+    height: 3px;
+  }
+
+  .subnav {
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    border-right: none;
+    border-bottom: 1px solid var(--line-1);
+  }
+
+  .subnav-head {
+    width: 100%;
+    margin: 0 var(--sp-2) var(--sp-2);
+  }
+
+  .subnav-item {
+    padding-left: var(--sp-3);
+  }
+
+  .subnav-item.here::before {
+    display: none;
+  }
+
+  .content {
+    padding: var(--sp-4) var(--sp-3) 48px;
+  }
+}

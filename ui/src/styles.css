@@ -1,0 +1,38 @@
+/* app-tail dashboard.
+   Visual intent: a network instrument, not a generic admin panel. Addresses are set
+   in monospace because they are the thing the user reads most; everything else is
+   quiet so the tables carry the page.
+
+   This file is a manifest and holds no rules of its own. The import order IS the
+   cascade -- two selectors of equal specificity are still decided by which file came
+   first -- so a new sheet goes where its rules belong in that order, never at the end
+   for convenience. */
+
+@import './styles/fonts.css';
+@import './styles/tokens.css';
+@import './styles/base.css';
+@import './styles/motion.css';
+@import './styles/shell.css';
+@import './styles/layout.css';
+@import './styles/features/connection.css';
+@import './styles/panel.css';
+@import './styles/features/tunnels.css';
+@import './styles/features/mode.css';
+@import './styles/features/routing.css';
+@import './styles/features/interface.css';
+@import './styles/features/proxy.css';
+@import './styles/features/lock.css';
+@import './styles/features/pickers.css';
+@import './styles/features/dns.css';
+@import './styles/features/activity.css';
+@import './styles/table.css';
+@import './styles/controls.css';
+@import './styles/forms.css';
+@import './styles/snippets.css';
+@import './styles/overlays.css';
+@import './styles/messages.css';
+@import './styles/features/traffic.css';
+@import './styles/charts.css';
+@import './styles/card-settings.css';
+@import './styles/popovers.css';
+@import './styles/responsive.css';

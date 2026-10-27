@@ -1,0 +1,11 @@
+# Third-party licence texts are stored exactly as their vendor distributes them: the
+# release verifies the shipped copy against the archive it came from byte for byte, and
+# a line-ending rewrite would break that comparison and alter a notice this project is
+# required to reproduce unchanged.
+internal/licenses/WINTUN_LICENSE.txt -text
+
+# The generator embeds its preamble and writes the result into a checked-in file, so both
+# sides have to read the same on every machine: a checkout that rewrote their endings
+# would make `go generate` on Windows produce a file everyone else sees as modified.
+internal/config/gen/preamble.ts.tmpl text eol=lf
+ui/src/generated/settingsSchema.ts text eol=lf

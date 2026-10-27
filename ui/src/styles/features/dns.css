@@ -1,0 +1,294 @@
+/* --- dns ----------------------------------------------------------------- */
+
+/* What the tailnet publishes beside what this machine resolves with. Reading them
+   against each other is the point: the gap is why a name the tailnet serves does not
+   resolve in a browser. */
+.dns-lists {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: var(--sp-4) var(--sp-6);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--line-1);
+}
+
+.dns-list ul {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: var(--sp-1) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--fs-md);
+}
+
+.dns-list li {
+  display: flex;
+  flex-direction: column;
+  overflow-wrap: anywhere;
+}
+
+/* A list that owns the card's full width rather than one column of the grid above, so its
+   rows read across: the name on the left, the connection it belongs to on the right. */
+.dns-list.rows li {
+  flex-direction: row;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: 3px 0;
+  border-bottom: 1px solid var(--line-1);
+}
+
+.dns-list.rows li:last-child {
+  border-bottom: 0;
+}
+
+.dns-empty {
+  margin: var(--sp-1) 0 0;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+
+/* --- the ladder ------------------------------------------------------------- */
+
+/* One choice with a few positions, each a step up from the last: how much to block, how
+   deep to inspect. Drawn as one strip with the chosen rung lit by a thumb that slides
+   to it, a meter under the strip filled as far as that rung, and the chosen rung's
+   sentence beneath. Every rung stays a real radio, so the arrow keys walk the strip. */
+.block-levels-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.block-levels-title {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--text-2);
+}
+
+.block-levels {
+  --rungs: 1;
+  --pos: 0;
+  --rung-h: 44px;
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(var(--rungs), minmax(0, 1fr));
+  grid-template-rows: auto 3px auto;
+  gap: 0;
+  row-gap: var(--sp-2);
+  padding: 3px;
+  background: var(--surface-0);
+  border: 1px solid var(--line-1);
+  border-radius: var(--radius-md);
+}
+
+/* How many rungs there are, read off the strip's last child, and which one is chosen,
+   read off its radio. Both feed the thumb and the meter below; no rung carries a
+   position of its own. */
+.block-levels:has(> :nth-child(2):last-child) {
+  --rungs: 2;
+}
+.block-levels:has(> :nth-child(3):last-child) {
+  --rungs: 3;
+}
+.block-levels:has(> :nth-child(4):last-child) {
+  --rungs: 4;
+}
+.block-levels:has(> :nth-child(5):last-child) {
+  --rungs: 5;
+}
+.block-levels:has(> :nth-child(6):last-child) {
+  --rungs: 6;
+}
+.block-levels:has(> :nth-child(7):last-child) {
+  --rungs: 7;
+}
+.block-levels:has(> :nth-child(8):last-child) {
+  --rungs: 8;
+}
+
+.block-levels:has(> :nth-child(1) input:checked) {
+  --pos: 0;
+}
+.block-levels:has(> :nth-child(2) input:checked) {
+  --pos: 1;
+}
+.block-levels:has(> :nth-child(3) input:checked) {
+  --pos: 2;
+}
+.block-levels:has(> :nth-child(4) input:checked) {
+  --pos: 3;
+}
+.block-levels:has(> :nth-child(5) input:checked) {
+  --pos: 4;
+}
+.block-levels:has(> :nth-child(6) input:checked) {
+  --pos: 5;
+}
+.block-levels:has(> :nth-child(7) input:checked) {
+  --pos: 6;
+}
+.block-levels:has(> :nth-child(8) input:checked) {
+  --pos: 7;
+}
+
+/* The thumb: one rung wide, slid to the chosen rung. It is under the names, so the
+   chosen name is read on the wash rather than beside it. The rungs are a fixed height
+   for the same reason: the thumb has to know how tall a rung is. */
+.block-levels::before {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  height: var(--rung-h);
+  width: calc((100% - 6px) / var(--rungs));
+  border-radius: var(--radius-sm);
+  background: var(--grad-thumb);
+  box-shadow: var(--glow-1);
+  transform: translateX(calc(var(--pos) * 100%));
+  transition:
+    transform var(--dur-slow) var(--ease-spring),
+    opacity var(--dur) var(--ease);
+  pointer-events: none;
+}
+
+/* Nothing chosen -- a custom mix of switches the rungs do not name -- and the thumb has
+   nowhere to be. */
+.block-levels:not(:has(input:checked))::before {
+  opacity: 0;
+}
+
+/* The meter: filled as far as the chosen rung, empty when none is. */
+.block-levels::after {
+  content: '';
+  grid-row: 2;
+  grid-column: 1 / -1;
+  margin: 0 var(--sp-2);
+  border-radius: var(--radius-pill);
+  background: var(--grad-accent-h);
+  clip-path: inset(0 calc(100% - (var(--pos) + 1) / var(--rungs) * 100%) 0 0 round 2px);
+  transition: clip-path var(--dur-slow) var(--ease-out);
+}
+
+.block-levels:not(:has(input:checked))::after {
+  clip-path: inset(0 100% 0 0);
+}
+
+/* The label is the strip's grid items rather than a box of its own: its name sits in the
+   strip, its sentence under the meter. */
+.block-level {
+  display: contents;
+  cursor: pointer;
+}
+
+.block-level input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.block-level-name {
+  position: relative;
+  z-index: var(--z-raised);
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  height: var(--rung-h);
+  overflow: hidden;
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  text-align: center;
+  color: var(--text-3);
+  cursor: pointer;
+  transition:
+    color var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+}
+
+.block-level:hover .block-level-name {
+  color: var(--text-1);
+  background: var(--surface-2);
+}
+
+.block-level.chosen .block-level-name,
+.block-level.chosen:hover .block-level-name {
+  color: var(--text-1);
+  background: transparent;
+}
+
+.block-level:focus-within .block-level-name {
+  box-shadow: var(--focus-ring);
+}
+
+.block-level input:disabled ~ .block-level-name {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* The word under the recommended rung's name, small enough to sit inside the strip. */
+.block-level-badge {
+  padding: 0 5px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-1-wash);
+  color: var(--accent-1);
+  font-size: 9px;
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* Every rung's sentence sits in the same slot under the meter; only the chosen one is
+   drawn, so the strip explains the rung in force rather than all of them at once. The
+   rest stay in the accessibility tree, since each is part of its radio's name. */
+.block-level-help {
+  grid-row: 3;
+  grid-column: 1 / -1;
+  padding: 0 var(--sp-2) var(--sp-1);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--text-2);
+  min-width: 0;
+  animation: fade-in var(--dur) var(--ease-out) both;
+}
+
+.block-level:not(.chosen) .block-level-help {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+/* Without :has there is no thumb and no meter; the chosen rung is painted directly. */
+@supports not selector(:has(a)) {
+  .block-levels::before,
+  .block-levels::after {
+    display: none;
+  }
+
+  .block-levels {
+    grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+    grid-template-rows: auto;
+  }
+
+  .block-level.chosen .block-level-name {
+    background: var(--grad-thumb);
+  }
+}
+
+/* The lists below the grid are further subjects rather than more columns of it. */
+.panel-body > .dns-list {
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--line-1);
+}

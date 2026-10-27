@@ -1,0 +1,154 @@
+/* --- live traffic --------------------------------------------------------- */
+
+/* The headline figures over the charts. The label is the term and the number its
+   definition, so a reader is told what each figure is before hearing it; on the page
+   the number leads. */
+.traffic-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-4) var(--sp-7);
+  margin: 0 0 var(--sp-5);
+}
+
+.traffic-metric {
+  display: flex;
+  flex-direction: column-reverse;
+  min-width: 0;
+}
+
+.traffic-metric dd {
+  margin: 0;
+}
+
+/* The one control that governs both charts, so it sits over the pair rather than in
+   either one's own heading. */
+.traffic-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-4);
+}
+
+/* One choice with five positions, drawn as a run of pills in one track. The radios
+   themselves are hidden rather than removed, so the group keeps the arrow-key behaviour
+   anyone driving this from a keyboard expects and the focus ring still lands on the
+   chosen one. */
+.traffic-dimensions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 2px;
+  background: var(--surface-0);
+  border: 1px solid var(--line-1);
+  border-radius: var(--radius-pill);
+}
+
+.traffic-dimension {
+  position: relative;
+  min-height: 26px;
+  padding: 4px var(--sp-3);
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-3);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition:
+    color var(--dur) var(--ease),
+    background var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
+}
+
+.traffic-dimension:hover {
+  color: var(--text-1);
+  background: var(--surface-2);
+}
+
+.traffic-dimension.chosen {
+  color: var(--accent-ink);
+  background: var(--grad-accent-h);
+  box-shadow: var(--glow-1);
+}
+
+.traffic-dimension:focus-within {
+  box-shadow: var(--focus-ring);
+}
+
+.traffic-dimension input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* --- the ports filters ------------------------------------------------------ */
+
+.traffic-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-4);
+  align-items: center;
+}
+
+.traffic-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-medium);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.traffic-chart-total {
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  font-feature-settings: var(--font-features-num);
+  color: var(--text-2);
+}
+
+.traffic-smooth {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-medium);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.traffic-charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
+  gap: var(--sp-4);
+  margin-top: var(--sp-4);
+}
+
+.traffic-chart {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.traffic-chart-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+
+.traffic-chart-head h3 {
+  margin: 0;
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-3);
+}

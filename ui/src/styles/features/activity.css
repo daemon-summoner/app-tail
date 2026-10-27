@@ -1,0 +1,149 @@
+/* --- activity ------------------------------------------------------------- */
+
+/* The filter rail sits above the table, inside the card's own edges: the table below is
+   bare, so this is what carries the padding for both. */
+.activity-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3) var(--sp-4);
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--line-1);
+}
+
+.activity-legend {
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.activity-facet {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  border: none;
+  margin: 0;
+  padding: 0;
+}
+
+.activity-facet legend {
+  float: left;
+  padding: 0 var(--sp-2) 0 0;
+  line-height: 28px;
+}
+
+/* A facet's values as pills, each one a switch: lit in the cyan wash while it is in the
+   filter, outlined while it is not. */
+.activity-chip {
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  line-height: 1;
+  min-height: 28px;
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease);
+}
+
+.activity-chip:hover {
+  border-color: var(--line-3);
+  background: var(--surface-2);
+  color: var(--text-1);
+}
+
+.activity-chip.on {
+  border-color: var(--accent-1-line);
+  background: var(--accent-1-wash);
+  color: var(--accent-1);
+  box-shadow: var(--glow-1);
+}
+
+.activity-chip:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.activity-code,
+.activity-search {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.activity-code select,
+.activity-search input {
+  max-width: 22ch;
+}
+
+.activity-at {
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  font-feature-settings: var(--font-features-num);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.activity-code-cell {
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+/* Severity carries a colour as well as the word, and never the colour alone: the word is
+   the badge's whole content. */
+.badge.severity-notice {
+  color: var(--text-1);
+}
+
+.badge.severity-warning {
+  border-color: var(--warn-line);
+  background: var(--warn-wash);
+  color: var(--warn-text);
+}
+
+.badge.severity-error {
+  border-color: var(--danger-line);
+  background: var(--danger-wash);
+  color: var(--danger-text);
+}
+
+/* The named values behind a sentence, under it rather than in a column of their own: which
+   ones an entry carries differs per event, so there is no column that would be full. */
+.activity-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-3);
+  margin-top: 5px;
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+
+.activity-field-name {
+  color: var(--text-3);
+}
+
+.activity-field-name::after {
+  content: '=';
+}
+
+.activity-more {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-top: 1px solid var(--line-1);
+}

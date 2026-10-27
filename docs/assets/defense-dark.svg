@@ -1,0 +1,143 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640" role="img" aria-labelledby="title desc">
+  <title id="title">Defense in depth</title>
+  <desc id="desc">Six kinds of attacker on the left, each stopped at a wall by a specific control on the right: a token-locked API, owner-only state, verified helper callers, root-owned binaries only, shields and approved routes, and threat feeds with blocklists.</desc>
+  <style>
+    :root {
+      --bg-a: #04060c;
+      --bg-b: #0b1324;
+      --grid: #38bdf8;
+      --grid-alpha: 0.06;
+      --text: #e6edf7;
+      --muted: #8b9ab3;
+      --accent: #22d3ee;
+      --accent-2: #a78bfa;
+      --threat: #fb7185;
+      --ok: #34d399;
+      --row: #0c1628;
+      --row-line: #1a2c47;
+      --wall: #22d3ee;
+    }
+    .bg-a { stop-color: var(--bg-a); }
+    .bg-b { stop-color: var(--bg-b); }
+    .grid { stroke: var(--grid); stroke-opacity: var(--grid-alpha); }
+    .mono { font-family: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace; }
+    .sans { font-family: Inter, "SF Pro Display", -apple-system, "Segoe UI", system-ui, sans-serif; }
+    .eyebrow { fill: var(--accent); font-size: 13px; letter-spacing: 4px; }
+    .heading { fill: var(--text); font-size: 30px; font-weight: 700; }
+    .col { fill: var(--muted); font-size: 12px; letter-spacing: 3px; }
+    .row { fill: var(--row); stroke: var(--row-line); }
+    .who { fill: var(--text); font-size: 17px; font-weight: 600; }
+    .idx { fill: var(--threat); font-size: 13px; letter-spacing: 1px; }
+    .ctl { fill: var(--text); font-size: 17px; font-weight: 700; }
+    .det { fill: var(--muted); font-size: 14.5px; }
+    .tick { fill: none; stroke: var(--ok); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+    .wall { fill: var(--wall); fill-opacity: 0.12; stroke: var(--wall); stroke-width: 1.5; }
+    .wall-glow { fill: var(--wall); opacity: 0.0; animation: hit 3.6s ease-out infinite; }
+    .probe { fill: var(--threat); animation: probe 3.6s cubic-bezier(.4, 0, .9, .6) infinite; }
+    .trail { stroke: var(--threat); stroke-width: 2; stroke-dasharray: 2 8; stroke-opacity: 0.45; }
+    .d1 { animation-delay: 0s; } .d2 { animation-delay: 0.6s; } .d3 { animation-delay: 1.2s; }
+    .d4 { animation-delay: 1.8s; } .d5 { animation-delay: 2.4s; } .d6 { animation-delay: 3s; }
+    @keyframes probe {
+      0% { transform: translateX(0); opacity: 0; }
+      10% { opacity: 1; }
+      60% { transform: translateX(118px); opacity: 1; }
+      70%, 100% { transform: translateX(118px); opacity: 0; }
+    }
+    @keyframes hit { 0%, 55% { opacity: 0; } 62% { opacity: 0.55; } 100% { opacity: 0; } }
+    @media (prefers-reduced-motion: reduce) {
+      .probe, .wall-glow { animation: none; }
+      .probe { opacity: 0; }
+    }
+  </style>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" class="bg-a"/>
+      <stop offset="1" class="bg-b"/>
+    </linearGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" class="grid" fill="none" stroke-width="1"/>
+    </pattern>
+    <clipPath id="frame">
+      <rect width="1280" height="640" rx="20"/>
+    </clipPath>
+    <g id="check">
+      <path class="tick" d="M-7,0 L-2,5 L8,-6"/>
+    </g>
+  </defs>
+
+  <g clip-path="url(#frame)">
+    <rect width="1280" height="640" fill="url(#bg)"/>
+    <rect width="1280" height="640" fill="url(#grid)"/>
+
+    <text class="mono eyebrow" x="60" y="58">THREAT MODEL</text>
+    <text class="sans heading" x="60" y="96">Six ways in. Six walls.</text>
+    <text class="mono col" x="60" y="136">WHO IS TRYING</text>
+    <text class="mono col" x="620" y="136">WHAT STOPS THEM</text>
+
+    <g class="sans">
+      <g transform="translate(0 154)">
+        <rect class="row" x="40" width="1200" height="64" rx="12"/>
+        <text class="mono idx" x="64" y="38">01</text>
+        <text class="who" x="104" y="38">A web page in your browser</text>
+        <path class="trail" d="M420 32 H540"/>
+        <circle class="probe d1" cx="422" cy="32" r="5"/>
+        <use href="#check" x="600" y="32"/>
+        <text class="ctl" x="620" y="28">Token-locked API</text>
+        <text class="det" x="620" y="49">Every API call needs the token. Host, Origin and fetch checks stop DNS rebinding.</text>
+      </g>
+      <g transform="translate(0 228)">
+        <rect class="row" x="40" width="1200" height="64" rx="12"/>
+        <text class="mono idx" x="64" y="38">02</text>
+        <text class="who" x="104" y="38">Another account on this machine</text>
+        <path class="trail" d="M420 32 H540"/>
+        <circle class="probe d2" cx="422" cy="32" r="5"/>
+        <use href="#check" x="600" y="32"/>
+        <text class="ctl" x="620" y="28">Owner-only state</text>
+        <text class="det" x="620" y="49">Token, config and secrets are readable by you alone. Windows secrets are DPAPI-sealed.</text>
+      </g>
+      <g transform="translate(0 302)">
+        <rect class="row" x="40" width="1200" height="64" rx="12"/>
+        <text class="mono idx" x="64" y="38">03</text>
+        <text class="who" x="104" y="38">Another program running as you</text>
+        <path class="trail" d="M420 32 H540"/>
+        <circle class="probe d3" cx="422" cy="32" r="5"/>
+        <use href="#check" x="600" y="32"/>
+        <text class="ctl" x="620" y="28">Verified helper callers</text>
+        <text class="det" x="620" y="49">The root helper checks the caller is app-tail itself. Big changes need an admin grant.</text>
+      </g>
+      <g transform="translate(0 376)">
+        <rect class="row" x="40" width="1200" height="64" rx="12"/>
+        <text class="mono idx" x="64" y="38">04</text>
+        <text class="who" x="104" y="38">A swapped or planted binary</text>
+        <path class="trail" d="M420 32 H540"/>
+        <circle class="probe d4" cx="422" cy="32" r="5"/>
+        <use href="#check" x="600" y="32"/>
+        <text class="ctl" x="620" y="28">Root-owned programs only</text>
+        <text class="det" x="620" y="49">Root runs nothing an ordinary account could replace, down to every folder and library.</text>
+      </g>
+      <g transform="translate(0 450)">
+        <rect class="row" x="40" width="1200" height="64" rx="12"/>
+        <text class="mono idx" x="64" y="38">05</text>
+        <text class="who" x="104" y="38">A device on your tailnet</text>
+        <path class="trail" d="M420 32 H540"/>
+        <circle class="probe d5" cx="422" cy="32" r="5"/>
+        <use href="#check" x="600" y="32"/>
+        <text class="ctl" x="620" y="28">Shields and approved routes</text>
+        <text class="det" x="620" y="49">Shields drop incoming connections. Shared subnets reach only approved addresses.</text>
+      </g>
+      <g transform="translate(0 524)">
+        <rect class="row" x="40" width="1200" height="64" rx="12"/>
+        <text class="mono idx" x="64" y="38">06</text>
+        <text class="who" x="104" y="38">A malicious site or server</text>
+        <path class="trail" d="M420 32 H540"/>
+        <circle class="probe d6" cx="422" cy="32" r="5"/>
+        <use href="#check" x="600" y="32"/>
+        <text class="ctl" x="620" y="28">Threat feeds and blocklists</text>
+        <text class="det" x="620" y="49">Blocklists refuse bad names. Threat feeds flag or refuse known-bad addresses.</text>
+      </g>
+    </g>
+
+    <rect class="wall" x="548" y="146" width="16" height="450" rx="8"/>
+    <rect class="wall-glow" x="540" y="146" width="32" height="450" rx="16"/>
+  </g>
+</svg>
