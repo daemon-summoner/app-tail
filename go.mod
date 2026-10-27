@@ -8,7 +8,7 @@ require (
 	github.com/tailscale/hujson v0.0.0-20260302212456-ecc657c15afd
 	github.com/tailscale/peercred v0.0.0-20250107143737-35a0c7bd7edc
 	github.com/tailscale/wireguard-go v0.0.0-20260527010701-b48af7099cad
-	github.com/tc-hib/winres v0.2.1
+	github.com/tc-hib/winres v0.3.1
 	go4.org/netipx v0.0.0-20231129151722-fdeea329fbba
 	golang.org/x/crypto v0.55.0
 	golang.org/x/net v0.58.0
