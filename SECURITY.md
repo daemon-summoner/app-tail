@@ -21,7 +21,7 @@ service, so almost everything is reproducible on one machine.
 | Who | What they can do | Where app-tail stands |
 |---|---|---|
 | A web page in your browser | Nothing. It cannot call the dashboard API: every call needs the API token, the `Host` must be loopback, a request marked cross-site is refused, and writes need a JSON content type a page cannot send cross-origin without permission. | Defended |
-| Another device on your tailnet or LAN | Reach the forwards you opened, and nothing else. The dashboard binds loopback only and no setting moves it. | Defended |
+| Another device on your tailnet or LAN | Reach the forwards you opened and, from the tailnet when your access rules allow it, the services this machine already offers its network. Nothing that listens only on localhost, and none of app-tail's own ports. The dashboard binds loopback only and no setting moves it. | Defended |
 | Another account on this machine | Nothing of yours. It cannot read the API token or your credentials, cannot redeem a sign-in link meant for you (macOS and Linux), and the root helper refuses it. The one exception is the tailnet proxy, which is open to every local process while you have it on; see below. | Defended |
 | A program running as you | What you can do in the dashboard, because it can read your files. It cannot make the root helper change the machine's networking beyond the narrow set that is always safe and the changes an administrator approved, and it cannot get root to run a program of its choosing. | Bounded |
 | Malware with root or administrator rights | Anything. No program can defend a machine from its own administrator. | Out of scope |
@@ -124,6 +124,9 @@ things that would break that promise:
   loopback, a link-local address, or the tailnet's own range. The approved set is
   read from the tailnet, never from what this device asked to carry.
 - Carrying any connection for an advertised network while `routes.serve` is off.
+- A connection arriving over the tailnet reaching a service that listens only on
+  localhost, one of app-tail's own ports or a `to_local` forward's port, or
+  reaching any service without a forward while `incoming.allow` is off.
 - This machine's own proxy configuration being written while `proxy.system` is
   off, or a value app-tail replaced not being put back when it is turned off.
 - A connection arriving over the tailnet being answered while
@@ -452,6 +455,11 @@ These are deliberate, and each one is enforced somewhere in the code:
   its adapter under its own type and its own identifier so neither install ever reads
   the other's as its own left behind. The refusal happens before the running node is
   torn down, so a machine in that state keeps the tailnet it already had.
+- **`incoming.allow` is on by default.** Tailnet devices your access rules allow can
+  reach TCP services this machine already offers its network, which matches regular
+  Tailscale. A service that trusts its local network sees this machine's own address
+  as the caller, so it cannot tell a tailnet device from itself. Bind a service to
+  localhost to keep it private, or turn `incoming.allow` off.
 - **`security.shieldsUp` silences forwards rather than refusing to be turned
   on.** Every forward in the `to_tailnet` direction stops answering while shields
   are up, whatever your tailnet's ACLs allow. app-tail does not reject the

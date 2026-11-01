@@ -3,6 +3,7 @@
 package config
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -176,5 +177,59 @@ func TestRefusingBothExitNodeRolesNamesTheSettingToTurnOff(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), label.Label) {
 		t.Errorf("refusal is %q, want it to name %q", err, label.Label)
+	}
+}
+
+// Sharing is on by default for installs that predate the setting, which a plain bool could
+// not do: an absent key and a user's "off" would decode alike.
+func TestADocumentWrittenBeforeIncomingExistedAllowsIt(t *testing.T) {
+	var p TailnetPrefs
+	if err := json.Unmarshal([]byte(`{"routes.serve":false}`), &p); err != nil {
+		t.Fatal(err)
+	}
+	if !p.AllowsIncoming() {
+		t.Error("a connection saved before this setting existed does not allow incoming connections")
+	}
+}
+
+func TestTurningIncomingOffSurvivesBeingSaved(t *testing.T) {
+	held := tailnetWith(TailnetPrefs{})
+	field, ok := tunnelRegistry.ByJSONKey("incoming.allow")
+	if !ok {
+		t.Fatal("incoming.allow is not a registered connection field")
+	}
+	field.set(&held, false)
+
+	saved, err := json.Marshal(held.TS().TailnetPrefs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var loaded TailnetPrefs
+	if err := json.Unmarshal(saved, &loaded); err != nil {
+		t.Fatal(err)
+	}
+	if loaded.AllowsIncoming() {
+		t.Errorf("a user's off came back on after a save and a load: %s", saved)
+	}
+}
+
+// The value is shared by pointer, and the stored config must not change through a copy.
+func TestAClonedPreferenceDoesNotShareIncomingWithItsOriginal(t *testing.T) {
+	on := true
+	original := TailnetPrefs{IncomingAllow: &on}
+	copied := original.clone()
+	*copied.IncomingAllow = false
+
+	if !original.AllowsIncoming() {
+		t.Error("changing a clone turned incoming connections off on the original")
+	}
+}
+
+// Sharing is its own decision and no module's switch governs it. Masking it with routes
+// off would leave the default install sharing nothing.
+func TestIncomingStaysOnWithEveryModuleOff(t *testing.T) {
+	var s Settings
+	if !s.TailnetPrefsOf(tailnetWith(TailnetPrefs{})).AllowsIncoming() {
+		t.Error("incoming connections read as off with the optional modules off")
 	}
 }

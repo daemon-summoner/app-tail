@@ -174,6 +174,12 @@ type TailnetPrefs struct {
 	// node that carries traffic can only carry TCP.
 	RoutesServe bool `json:"routes.serve"`
 
+	// IncomingAllow shares the services this machine offers its own network with this
+	// tailnet. It is a pointer because nil means on: a bool could not tell a document
+	// written before this setting existed from a user who turned it off. Read it through
+	// AllowsIncoming.
+	IncomingAllow *bool `json:"incoming.allow,omitempty"`
+
 	// ExitNodeID names the peer to use, by stable node ID. While rotation is on this is
 	// the node to fall back to rather than the one in use: the rotator's current pick is
 	// runtime state, and writing it here would rewrite the settings file on a timer.
@@ -268,7 +274,16 @@ func (p TailnetPrefs) EffectiveRotateInterval() time.Duration {
 // clone returns a copy sharing no slice with p.
 func (p TailnetPrefs) clone() TailnetPrefs {
 	p.RoutesAdvertise = append([]netip.Prefix(nil), p.RoutesAdvertise...)
+	if p.IncomingAllow != nil {
+		allow := *p.IncomingAllow
+		p.IncomingAllow = &allow
+	}
 	return p
+}
+
+// AllowsIncoming reports whether this connection shares this machine's network services.
+func (p TailnetPrefs) AllowsIncoming() bool {
+	return p.IncomingAllow == nil || *p.IncomingAllow
 }
 
 // TailnetPrefsOf is what one connection actually asks its node for: the preferences it
@@ -533,14 +548,4 @@ func (c *Config) PrimaryTailscale() (*TailscaleTunnel, error) {
 		}
 	}
 	return nil, fmt.Errorf("connection %q is missing, so there is nothing to apply the tailnet settings to", PrimaryTunnelID)
-}
-
-// TunnelBySlug returns the stored connection answering to this DNS label.
-func (c *Config) TunnelBySlug(slug string) (Tunnel, bool) {
-	for _, t := range c.Tunnels {
-		if t.Slug == slug {
-			return t, true
-		}
-	}
-	return Tunnel{}, false
 }

@@ -11,6 +11,10 @@
 // than the peer that called it. Both facts are stated on the setting, in the dashboard
 // and in the README, because each would otherwise be filed as a bug against a router
 // working exactly as it can.
+//
+// The same hook delivers connections addressed to this device itself, because in userspace
+// no operating system interface holds the tailnet address. Those go to whatever this machine
+// offers its own network; see carryIncoming.
 package subnets
 
 import (
@@ -20,6 +24,7 @@ import (
 	"log/slog"
 	"net"
 	"net/netip"
+	"slices"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -56,20 +61,29 @@ type PrefsFunc func() config.TailnetPrefs
 type Tailnet interface {
 	ApprovedRoutes(ctx context.Context) ([]netip.Prefix, error)
 	ServeSubnets(h func(src, dst netip.AddrPort) func(net.Conn)) (func(), error)
+	// ContainedAddrs are this node's addresses when only this process can receive a flow
+	// to them, and empty when the operating system holds them instead.
+	ContainedAddrs() []netip.Addr
 }
+
+// DialGuard judges one address this router is about to connect to on this machine. An error
+// refuses the connection.
+type DialGuard func(network string, addr netip.AddrPort) error
 
 // Status is what this router is doing. What it is allowed to carry is deliberately not
 // here: the approved set is the tailnet's answer, read from the node, and a copy cached
 // inside this router would be a second source for the one number a user acts on.
 type Status struct {
-	// Serving reports that the hook is installed, so a flow to an approved network
-	// reaches this process rather than being reset.
+	// Serving reports that a flow to an approved network reaches this process rather
+	// than being reset. The hook alone does not mean that: it is also installed to
+	// deliver connections to this device while routes are switched off.
 	Serving bool
 	// Carried counts connections handed on to a destination, Refused those turned away
 	// because the destination was not one this device carries.
 	Carried uint64
 	Refused uint64
-	// BytesIn is what peers sent, BytesOut what the destinations sent back.
+	// BytesIn is what peers sent, BytesOut what the destinations sent back. They include
+	// connections to this device's own services.
 	BytesIn  uint64
 	BytesOut uint64
 	// Error is the last failure that stopped this router from serving, kept because a
@@ -87,6 +101,8 @@ type Router struct {
 	// dial reaches a destination from this machine's own network stack, which is the
 	// one boundary this package has and so the one seam a test substitutes.
 	dial func(ctx context.Context, network, address string) (net.Conn, error)
+	// hostAddrs lists the addresses a connection to this device is dialed at.
+	hostAddrs func() ([]netip.Addr, error)
 	// now is the clock the approved-route cache ages against, so a test drives expiry
 	// rather than waiting it out.
 	now func() time.Time
@@ -95,6 +111,8 @@ type Router struct {
 	// r.mu because it is read once per flow on the tailnet stack's own goroutines, and r.mu
 	// is what a flow being classified and a dashboard poll already contend for.
 	inspector atomic.Pointer[Inspector]
+	// guard keeps connections to this device away from app-tail's own listeners.
+	guard atomic.Pointer[DialGuard]
 
 	// ctx bounds every connection this router carries: closing it cuts the copies in
 	// flight rather than leaving them to their own timeouts.
@@ -142,14 +160,15 @@ func New(tn Tailnet, prefs PrefsFunc, logger *slog.Logger) *Router {
 	ctx, cancel := context.WithCancel(context.Background())
 	dialer := &net.Dialer{}
 	return &Router{
-		tn:     tn,
-		prefs:  prefs,
-		logger: logger,
-		dial:   dialer.DialContext,
-		now:    time.Now,
-		ctx:    ctx,
-		cancel: cancel,
-		ports:  bytecount.New(maxPorts),
+		tn:        tn,
+		prefs:     prefs,
+		logger:    logger,
+		dial:      dialer.DialContext,
+		hostAddrs: networkAddrs,
+		now:       time.Now,
+		ctx:       ctx,
+		cancel:    cancel,
+		ports:     bytecount.New(maxPorts),
 	}
 }
 
@@ -166,7 +185,11 @@ func (r *Router) SetNodeUp(up bool) {
 // Apply reconciles the router with the current preferences: it starts carrying connections
 // or stops. It is idempotent, so the reconcile loop calls it on every pass.
 func (r *Router) Apply() error {
-	serve := r.prefs().RoutesServe
+	prefs := r.prefs()
+	// Status.Error belongs to routes. Sharing is on by default, so without this every
+	// disconnected device would report a routing failure nobody asked about.
+	routes := prefs.RoutesServe
+	serve := routes || (prefs.AllowsIncoming() && len(r.tn.ContainedAddrs()) > 0)
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -181,7 +204,10 @@ func (r *Router) Apply() error {
 		// it approved and turned this on is looking at this card for the reason nothing
 		// is reaching them.
 		r.stopLocked()
-		r.failed = "the tailnet node is not running"
+		r.failed = ""
+		if routes {
+			r.failed = "the tailnet node is not running"
+		}
 		return nil
 	}
 	if r.stop != nil {
@@ -192,14 +218,16 @@ func (r *Router) Apply() error {
 	if err != nil {
 		// Recorded as well as returned: a node that is not up yet is the ordinary case
 		// on startup, and the reason belongs on screen for as long as it lasts.
-		r.failed = err.Error()
+		if routes {
+			r.failed = err.Error()
+		}
 		return fmt.Errorf("carry connections for the networks this device routes: %w", err)
 	}
 	r.stop, r.failed = stop, ""
 	// Read fresh on the next connection rather than carried over from whatever was
 	// cached while this router was switched off.
 	r.approvedAt = time.Time{}
-	r.logger.Info("carrying tailnet connections for the networks this device routes")
+	r.logger.Info("carrying tailnet connections for this device and the networks it routes")
 	return nil
 }
 
@@ -224,10 +252,10 @@ func (r *Router) stopLocked() {
 // Status reports what this router is doing.
 func (r *Router) Status() Status {
 	r.mu.Lock()
-	serving, failed := r.stop != nil, r.failed
+	hooked, failed := r.stop != nil, r.failed
 	r.mu.Unlock()
 	return Status{
-		Serving:  serving,
+		Serving:  hooked && r.prefs().RoutesServe,
 		Carried:  r.counters.carried.Load(),
 		Refused:  r.counters.refused.Load(),
 		BytesIn:  r.counters.bytesIn.Load(),
@@ -269,6 +297,16 @@ func (r *Router) SetInspector(in Inspector) {
 	r.inspector.Store(&in)
 }
 
+// SetDialGuard replaces what judges the addresses a connection to this device is dialed at.
+// Nil refuses nothing.
+func (r *Router) SetDialGuard(g DialGuard) {
+	if g == nil {
+		r.guard.Store(nil)
+		return
+	}
+	r.guard.Store(&g)
+}
+
 // inspects asks the inspector, and reports carrying the flow when there is none.
 func (r *Router) inspects(flow inspect.Flow) (string, bool) {
 	held := r.inspector.Load()
@@ -299,7 +337,20 @@ func (r *Router) opens(flow inspect.Flow, peer, upstream net.Conn) (net.Conn, ne
 }
 
 // handle decides what to do with one flow the tailnet delivered. A nil result refuses it.
+//
+// The tailnet stack calls this while holding its own lock, so nothing here may wait on a
+// connection. Dialing belongs to the function this returns.
 func (r *Router) handle(src, dst netip.AddrPort) func(net.Conn) {
+	if slices.Contains(r.tn.ContainedAddrs(), dst.Addr().Unmap()) {
+		return r.handleIncoming(src, dst)
+	}
+	// The hook may be here for sharing alone, and that must not switch routes back on.
+	if !r.prefs().RoutesServe {
+		r.counters.refused.Add(1)
+		r.logger.Warn("refused a tailnet connection for a network while routes are not being carried",
+			"from", src.String(), "to", dst.String())
+		return nil
+	}
 	if err := r.allowed(dst); err != nil {
 		r.counters.refused.Add(1)
 		r.logger.Warn("refused a tailnet connection to an address this device does not carry",
@@ -308,13 +359,7 @@ func (r *Router) handle(src, dst netip.AddrPort) func(net.Conn) {
 	}
 	// This is the one path in the app that knows which device asked, so the match names it.
 	// The flow arrived over the tailnet already addressed, so there is no name here either.
-	if reason, refuse := r.inspects(inspect.Flow{
-		Addr:     dst.Addr(),
-		Port:     dst.Port(),
-		Where:    "a network this device routes",
-		Protocol: "tcp",
-		Peer:     src.Addr().String(),
-	}); refuse {
+	if reason, refuse := r.inspects(flowTo(src, dst, whereRouted)); refuse {
 		r.counters.refused.Add(1)
 		r.logger.Warn("refused a tailnet connection that traffic inspection matched",
 			"from", src.String(), "to", dst.String(), "reason", reason)
@@ -322,6 +367,123 @@ func (r *Router) handle(src, dst netip.AddrPort) func(net.Conn) {
 	}
 	r.counters.carried.Add(1)
 	return func(c net.Conn) { r.carry(c, src, dst) }
+}
+
+// handleIncoming decides what to do with a flow addressed to this device itself.
+func (r *Router) handleIncoming(src, dst netip.AddrPort) func(net.Conn) {
+	if !r.prefs().AllowsIncoming() {
+		r.logger.Debug("refused a tailnet connection to this device: incoming connections are off",
+			"from", src.String(), "to", dst.String())
+		return nil
+	}
+	if reason, refuse := r.inspects(flowTo(src, dst, whereThisDevice)); refuse {
+		r.logger.Warn("refused a tailnet connection that traffic inspection matched",
+			"from", src.String(), "to", dst.String(), "reason", reason)
+		return nil
+	}
+	return func(c net.Conn) { r.carryIncoming(c, src, dst) }
+}
+
+// carryIncoming joins a peer's connection to the service on this machine at the port it
+// asked for.
+//
+// The service is dialed at a network address rather than at loopback, and that is the whole
+// privacy boundary: a service bound to localhost refuses this connection, so only what this
+// machine already offers its own network is shared. Dialing loopback here would publish every
+// database tunnel and local control port on the machine to the tailnet.
+func (r *Router) carryIncoming(peer net.Conn, src, dst netip.AddrPort) {
+	upstream, target, err := r.dialHost(dst.Port())
+	if err != nil {
+		// Debug, because this is also just a device trying a port nothing is listening on.
+		r.logger.Debug("a tailnet connection to this device reached no service",
+			"from", src.String(), "to", dst.String(), "reason", err)
+		// A reset, so the peer fails at once the way it would against a closed port.
+		netpipe.Reset(peer)
+		return
+	}
+	r.join(peer, upstream, src, dst, target, whereThisDevice)
+}
+
+// dialHost connects to a port on this machine through each of its network addresses until
+// one answers, because a service may be bound to only one of them.
+func (r *Router) dialHost(port uint16) (net.Conn, string, error) {
+	addrs, err := r.hostAddrs()
+	if err != nil {
+		return nil, "", fmt.Errorf("read this machine's addresses: %w", err)
+	}
+	if len(addrs) == 0 {
+		return nil, "", errors.New("this machine has no network address to reach a service at")
+	}
+	guard := r.guard.Load()
+	dialCtx, cancel := context.WithTimeout(r.ctx, dialTimeout)
+	defer cancel()
+	var failures []error
+	for _, addr := range addrs {
+		at := netip.AddrPortFrom(addr, port)
+		if guard != nil {
+			if err := (*guard)("tcp", at); err != nil {
+				return nil, "", err
+			}
+		}
+		conn, err := r.dial(dialCtx, "tcp", at.String())
+		if err == nil {
+			return conn, at.String(), nil
+		}
+		failures = append(failures, err)
+	}
+	return nil, "", errors.Join(failures...)
+}
+
+// networkAddrs lists the addresses this machine holds on its real networks, IPv4 first.
+func networkAddrs() ([]netip.Addr, error) {
+	return usableAddrs(net.Interfaces, (*net.Interface).Addrs)
+}
+
+// usableAddrs picks, out of what the interfaces hold, the addresses a service can be reached
+// at.
+//
+// Point-to-point interfaces are skipped as well as loopback. Those are VPN tunnels, app-tail's
+// own included, and a connection to their address can go into the tunnel rather than to the
+// machine.
+func usableAddrs(
+	list func() ([]net.Interface, error),
+	addrsOf func(*net.Interface) ([]net.Addr, error),
+) ([]netip.Addr, error) {
+	ifaces, err := list()
+	if err != nil {
+		return nil, err
+	}
+	var out []netip.Addr
+	for i := range ifaces {
+		iface := &ifaces[i]
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&(net.FlagLoopback|net.FlagPointToPoint) != 0 {
+			continue
+		}
+		held, err := addrsOf(iface)
+		if err != nil {
+			return nil, fmt.Errorf("read the addresses of %s: %w", iface.Name, err)
+		}
+		for _, a := range held {
+			ipnet, ok := a.(*net.IPNet)
+			if !ok {
+				continue
+			}
+			addr, ok := netip.AddrFromSlice(ipnet.IP)
+			if ok && addr.Unmap().IsGlobalUnicast() {
+				out = append(out, addr.Unmap())
+			}
+		}
+	}
+	slices.SortStableFunc(out, func(a, b netip.Addr) int {
+		switch {
+		case a.Is4() == b.Is4():
+			return 0
+		case a.Is4():
+			return -1
+		}
+		return 1
+	})
+	return out, nil
 }
 
 // allowed reports why a destination must not be carried, or nil when it may be.
@@ -402,7 +564,28 @@ func (r *Router) carry(peer net.Conn, src, dst netip.AddrPort) {
 		}
 		return
 	}
+	r.join(peer, upstream, src, dst, target, whereRouted)
+}
 
+// Where a flow is said to be going, in what traffic inspection records about it.
+const (
+	whereRouted     = "a network this device routes"
+	whereThisDevice = "this device, from the tailnet"
+)
+
+// flowTo is one flow as traffic inspection sees it.
+func flowTo(src, dst netip.AddrPort, where string) inspect.Flow {
+	return inspect.Flow{
+		Addr:     dst.Addr(),
+		Port:     dst.Port(),
+		Where:    where,
+		Protocol: "tcp",
+		Peer:     src.Addr().String(),
+	}
+}
+
+// join copies between a peer and the connection opened for it until either side ends.
+func (r *Router) join(peer, upstream net.Conn, src, dst netip.AddrPort, target, where string) {
 	flow := r.portEntry(src, dst)
 	flow.Open()
 	defer func() {
@@ -414,13 +597,7 @@ func (r *Router) carry(peer net.Conn, src, dst netip.AddrPort) {
 	// peers sent this machine is its down, and what the destinations sent back and this
 	// machine put onto the tailnet is its up -- the direction the flat lane already reports.
 	// The same flow the routes were asked about, asked again for its opening bytes.
-	inspecting := inspect.Flow{
-		Addr:     dst.Addr(),
-		Port:     dst.Port(),
-		Where:    "a network this device routes",
-		Protocol: "tcp",
-		Peer:     src.Addr().String(),
-	}
+	inspecting := flowTo(src, dst, where)
 	watch := r.watches(inspecting)
 	opened, openedUpstream, err := r.opens(inspecting, peer, upstream)
 	if err != nil {

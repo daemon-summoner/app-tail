@@ -7,8 +7,10 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sellitus/app-tail/internal/config"
 )
@@ -482,4 +484,313 @@ func TestTurningTheRouterBackOnReadsTheApprovedSetAgain(t *testing.T) {
 	if _, ok := tn.deliver(t, netip.MustParseAddrPort("10.20.0.7:80")); ok {
 		t.Error("a network that is no longer approved was still carried")
 	}
+}
+
+// A connection to this device's own tailnet address, on a machine whose services are shared.
+func incomingHarness(t *testing.T, box *settingsBox) (*harness, netip.AddrPort) {
+	t.Helper()
+	tn := newFakeTailnet()
+	tn.own = []netip.Addr{netip.MustParseAddr("100.65.45.58")}
+	h := newHarness(t, tn, box)
+	h.router.hostAddrs = func() ([]netip.Addr, error) {
+		return []netip.Addr{netip.MustParseAddr("192.168.6.201")}, nil
+	}
+	h.apply(t)
+	return h, netip.MustParseAddrPort("100.65.45.58:8080")
+}
+
+func routesOff(_ *config.Settings, p *config.TailnetPrefs) { p.RoutesServe = false }
+
+func incomingOff(_ *config.Settings, p *config.TailnetPrefs) {
+	off := false
+	p.IncomingAllow = &off
+}
+
+// The whole feature, and the privacy boundary with it: the service is dialed at this
+// machine's network address, so one listening only on localhost is never reached.
+func TestAConnectionToThisDeviceIsDialedAtItsNetworkAddressNotLoopback(t *testing.T) {
+	h, self := incomingHarness(t, newSettings(routesOff))
+
+	got := h.carry(t, self, "hello from a peer")
+
+	if got != "hello from a peer" {
+		t.Errorf("the connection returned %q, want the bytes the service sent back", got)
+	}
+	if dialed := h.dials(); len(dialed) != 1 || dialed[0] != "192.168.6.201:8080" {
+		t.Errorf("dialed %v, want only this machine's network address at the port asked for", dialed)
+	}
+}
+
+func TestSharingDoesNotShowUpAsRoutesBeingServed(t *testing.T) {
+	h, _ := incomingHarness(t, newSettings(routesOff))
+
+	if !h.tailnet.installed() {
+		t.Fatal("the hook is not installed, so no connection to this device could arrive")
+	}
+	if h.router.Status().Serving {
+		t.Error("the router reports serving routes while routes are switched off")
+	}
+}
+
+// Sharing installs the same hook routes use, on every device by default. Letting an approved
+// flow through here would turn routing back on for a user who switched it off.
+func TestSharingDoesNotCarryRoutesThatAreSwitchedOff(t *testing.T) {
+	h, _ := incomingHarness(t, newSettings(routesOff))
+	h.tailnet.approve(mustPrefixes(t, "10.20.0.0/24")...)
+
+	if _, ok := h.tailnet.deliver(t, netip.MustParseAddrPort("10.20.0.7:80")); ok {
+		t.Error("carried a flow for an approved network with routes switched off")
+	}
+}
+
+func TestSwitchingIncomingOffRefusesConnectionsToThisDevice(t *testing.T) {
+	box := newSettings(incomingOff)
+	h, self := incomingHarness(t, box)
+
+	if _, ok := h.tailnet.deliver(t, self); ok {
+		t.Error("carried a connection to this device with incoming connections off")
+	}
+}
+
+func TestSwitchingIncomingOffRemovesAHookOnlySharingNeeded(t *testing.T) {
+	h, _ := incomingHarness(t, newSettings(routesOff, incomingOff))
+
+	if h.tailnet.installed() {
+		t.Error("the hook is installed with both routes and incoming connections off")
+	}
+}
+
+// On the interface stack ContainedAddrs is empty, and the hook claims every flow it sees, so
+// installing it there would break subnet routes the operating system stack is carrying.
+func TestNoHookIsInstalledWhenTheOperatingSystemHoldsTheAddress(t *testing.T) {
+	h := newHarness(t, newFakeTailnet(), newSettings(routesOff))
+	h.apply(t)
+
+	if h.tailnet.installed() {
+		t.Error("installed the hook on a node whose addresses the operating system holds")
+	}
+}
+
+// A device not yet connected is the ordinary state of every install, and it has nothing to
+// do with routing, which it has not been asked to do.
+func TestADownNodeReportsNoRoutingFaultForSharingAlone(t *testing.T) {
+	h, _ := incomingHarness(t, newSettings(routesOff))
+	h.router.SetNodeUp(false)
+	h.apply(t)
+
+	if got := h.router.Status().Error; got != "" {
+		t.Errorf("a device only sharing services reports the routing fault %q", got)
+	}
+}
+
+func TestAPortAppTailOwnsIsNeverDialed(t *testing.T) {
+	h, self := incomingHarness(t, newSettings(routesOff))
+	h.router.SetDialGuard(func(string, netip.AddrPort) error { return errors.New("the proxy") })
+	handle, ok := h.tailnet.deliver(t, self)
+	if !ok {
+		t.Fatal("refused the flow before the guard could judge it")
+	}
+
+	peer, far := net.Pipe()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		handle(far)
+	}()
+
+	if err := peer.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatalf("set the test connection's deadline: %v", err)
+	}
+	if _, err := peer.Read(make([]byte, 1)); err == nil {
+		t.Error("the peer's connection stayed open on a port the guard refused")
+	}
+	peer.Close()
+	<-done
+	if dialed := h.dials(); len(dialed) != 0 {
+		t.Errorf("dialed %v past a guard that refused the port", dialed)
+	}
+}
+
+// A service bound to one of several addresses refuses on the others, and that must not read
+// as there being no service.
+func TestEveryNetworkAddressIsTriedBeforeGivingUp(t *testing.T) {
+	h, self := incomingHarness(t, newSettings(routesOff))
+	h.router.hostAddrs = func() ([]netip.Addr, error) {
+		return []netip.Addr{netip.MustParseAddr("10.0.0.5"), netip.MustParseAddr("192.168.6.201")}, nil
+	}
+	h.failDialsTo("10.0.0.5:8080", errors.New("connection refused"))
+
+	if got := h.carry(t, self, "second address"); got != "second address" {
+		t.Errorf("the connection returned %q", got)
+	}
+	if dialed := h.dials(); len(dialed) != 2 {
+		t.Errorf("dialed %v, want both addresses in turn", dialed)
+	}
+}
+
+func TestTakingTheGuardAwayLetsConnectionsThrough(t *testing.T) {
+	h, self := incomingHarness(t, newSettings(routesOff))
+	h.router.SetDialGuard(func(string, netip.AddrPort) error { return errors.New("the proxy") })
+	h.router.SetDialGuard(nil)
+
+	if got := h.carry(t, self, "unguarded"); got != "unguarded" {
+		t.Errorf("the connection returned %q", got)
+	}
+}
+
+func TestInspectionCanRefuseAConnectionToThisDevice(t *testing.T) {
+	h, self := incomingHarness(t, newSettings(routesOff))
+	seen := &fakeInspector{refuse: true}
+	h.router.SetInspector(seen)
+
+	if _, ok := h.tailnet.deliver(t, self); ok {
+		t.Error("carried a connection inspection refused")
+	}
+	if dialed := h.dials(); len(dialed) != 0 {
+		t.Errorf("dialed %v for a connection inspection refused", dialed)
+	}
+	if len(seen.seen) != 1 || seen.seen[0].Where != whereThisDevice {
+		t.Errorf("inspection saw %+v, want the one flow labelled %q", seen.seen, whereThisDevice)
+	}
+}
+
+func TestAMachineWhoseAddressesCannotBeReadSaysWhy(t *testing.T) {
+	h, _ := incomingHarness(t, newSettings(routesOff))
+	cause := errors.New("no permission")
+	h.router.hostAddrs = func() ([]netip.Addr, error) { return nil, cause }
+
+	if _, _, err := h.router.dialHost(8080); !errors.Is(err, cause) {
+		t.Errorf("error = %v, want the reason the addresses could not be read", err)
+	}
+	if dialed := h.dials(); len(dialed) != 0 {
+		t.Errorf("dialed %v with no address to dial", dialed)
+	}
+}
+
+func ipNet(t *testing.T, cidr string) *net.IPNet {
+	t.Helper()
+	p := netip.MustParsePrefix(cidr)
+	return &net.IPNet{IP: p.Addr().AsSlice(), Mask: net.CIDRMask(p.Bits(), p.Addr().BitLen())}
+}
+
+// A tunnel's own address is the dangerous entry here: on this machine the route to app-tail's
+// utun address points back into the tunnel, so dialing it never reaches a local service.
+func TestOnlyAddressesOnRealNetworksAreDialed(t *testing.T) {
+	up := net.FlagUp
+	ifaces := []net.Interface{
+		{Name: "en9"},
+		{Name: "lo0", Flags: up | net.FlagLoopback},
+		{Name: "utun4", Flags: up | net.FlagPointToPoint},
+		{Name: "en0", Flags: up},
+		{Name: "en1", Flags: up},
+	}
+	held := map[string][]net.Addr{
+		"en9":   {ipNet(t, "192.168.99.1/24")},
+		"lo0":   {ipNet(t, "127.0.0.1/8")},
+		"utun4": {ipNet(t, "198.18.0.1/30")},
+		"en0": {
+			ipNet(t, "192.168.6.201/24"), ipNet(t, "2001:db8::5/64"), ipNet(t, "fe80::1/64"),
+			&net.IPAddr{IP: net.ParseIP("10.9.9.9")},
+		},
+		"en1": {ipNet(t, "10.0.0.5/24"), ipNet(t, "2001:db8::6/64")},
+	}
+
+	got, err := usableAddrs(
+		func() ([]net.Interface, error) { return ifaces, nil },
+		func(i *net.Interface) ([]net.Addr, error) { return held[i.Name], nil },
+	)
+	if err != nil {
+		t.Fatalf("usableAddrs: %v", err)
+	}
+
+	want := []netip.Addr{
+		netip.MustParseAddr("192.168.6.201"), netip.MustParseAddr("10.0.0.5"),
+		netip.MustParseAddr("2001:db8::5"), netip.MustParseAddr("2001:db8::6"),
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("usableAddrs = %v, want %v", got, want)
+	}
+}
+
+func TestAddressesThatCannotBeReadAreAnError(t *testing.T) {
+	cause := errors.New("no permission")
+	one := []net.Interface{{Name: "en0", Flags: net.FlagUp}}
+
+	_, err := usableAddrs(
+		func() ([]net.Interface, error) { return nil, cause },
+		func(*net.Interface) ([]net.Addr, error) { return nil, nil },
+	)
+	if !errors.Is(err, cause) {
+		t.Errorf("listing interfaces failed, and usableAddrs answered %v", err)
+	}
+
+	_, err = usableAddrs(
+		func() ([]net.Interface, error) { return one, nil },
+		func(*net.Interface) ([]net.Addr, error) { return nil, cause },
+	)
+	if !errors.Is(err, cause) || !strings.Contains(err.Error(), "en0") {
+		t.Errorf("reading en0 failed, and usableAddrs answered %v", err)
+	}
+}
+
+func TestAMachineWithNoNetworkAddressCutsTheConnection(t *testing.T) {
+	h, self := incomingHarness(t, newSettings(routesOff))
+	h.router.hostAddrs = func() ([]netip.Addr, error) { return nil, nil }
+	handle, ok := h.tailnet.deliver(t, self)
+	if !ok {
+		t.Fatal("refused the flow before it could look for an address")
+	}
+
+	peer, far := net.Pipe()
+	defer peer.Close()
+	go handle(far)
+
+	if _, err := peer.Read(make([]byte, 1)); err == nil {
+		t.Error("the peer's connection stayed open with nothing to reach")
+	}
+	if dialed := h.dials(); len(dialed) != 0 {
+		t.Errorf("dialed %v with no address to dial", dialed)
+	}
+}
+
+// Against real sockets, because which listener accepts which address is the kernel's answer
+// and the entire privacy boundary rests on it.
+func TestRealSocketsKeepLocalhostServicesPrivate(t *testing.T) {
+	addrs, err := networkAddrs()
+	if err != nil {
+		t.Fatalf("read this machine's network addresses: %v", err)
+	}
+	if len(addrs) == 0 {
+		t.Skip("this machine has no network address to dial")
+	}
+	for _, addr := range addrs {
+		if addr.IsLoopback() {
+			t.Errorf("networkAddrs offered the loopback address %s", addr)
+		}
+	}
+
+	localhost, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen on localhost: %v", err)
+	}
+	defer localhost.Close()
+	everywhere, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatalf("listen on every address: %v", err)
+	}
+	defer everywhere.Close()
+
+	router := New(newFakeTailnet(), newSettings().get, nil)
+	defer router.Close()
+
+	port := func(ln net.Listener) uint16 { return uint16(ln.Addr().(*net.TCPAddr).Port) }
+	if conn, target, err := router.dialHost(port(localhost)); err == nil {
+		conn.Close()
+		t.Errorf("reached a localhost-only service at %s", target)
+	}
+	conn, _, err := router.dialHost(port(everywhere))
+	if err != nil {
+		t.Fatalf("could not reach a service listening on every address: %v", err)
+	}
+	conn.Close()
 }

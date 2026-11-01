@@ -49,6 +49,8 @@ type fakeNode struct {
 	// approvedErr is the refusal a backend that cannot answer gives instead.
 	approved    []netip.Prefix
 	approvedErr error
+	// contained is what ContainedAddrs answers.
+	contained []netip.Addr
 	// serveErr refuses the subnet hook, which is what a network stack that already has
 	// one installed looks like to a caller.
 	serveErr error
@@ -489,6 +491,12 @@ func (n *fakeNode) failRoutes(err error) {
 	n.mu.Lock()
 	n.routesErr = err
 	n.mu.Unlock()
+}
+
+func (n *fakeNode) ContainedAddrs() []netip.Addr {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return append([]netip.Addr(nil), n.contained...)
 }
 
 func (n *fakeNode) ApprovedRoutes(context.Context) ([]netip.Prefix, error) {

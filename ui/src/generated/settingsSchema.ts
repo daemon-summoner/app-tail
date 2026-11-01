@@ -2887,6 +2887,25 @@ export const tunnelSchema: readonly SettingFieldSchema[] = [
     "help": "Answer the connections your tailnet sends here for an approved network. app-tail routes in userspace, so only TCP is carried: DNS, video calls, QUIC, VPNs and file shares all fail across these routes. Connections leave this machine from this machine's own address, so the far end sees this device rather than the one that called it."
   },
   {
+    "key": "incoming.allow",
+    "viewKey": "incoming.allow",
+    "cliName": "allow-incoming",
+    "kind": "bool",
+    "secret": false,
+    "readOnly": false,
+    "derived": false,
+    "restart": "none",
+    "write": "patch",
+    "label": "Allow incoming connections",
+    "group": "tailnet",
+    "tier": "basic",
+    "module": "core",
+    "tray": true,
+    "default": true,
+    "variant": "tailscale",
+    "help": "Let devices your tailnet's access rules allow reach services on this machine that listen on its network addresses, the same way regular Tailscale does. A service that listens only on localhost stays private; add a forward to share one. This covers TCP only, so a UDP service needs a forward too. The service sees this machine's own address rather than the device that called it. app-tail's own ports are never shared this way."
+  },
+  {
     "key": "routes.netfilter",
     "viewKey": "routes.netfilter",
     "kind": "string",

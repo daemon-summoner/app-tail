@@ -163,6 +163,24 @@ func (a *Agent) ownListenerDial(network string, addr netip.AddrPort) error {
 	return nil
 }
 
+// incomingDialGuard is the subnet router's dial guard for connections other devices open to
+// this one. Besides app-tail's listeners it refuses a to_local forward's port: one that
+// accepts network connections would let a device the tailnet's access rules hold back reach
+// a third device under this device's identity, which ownListeners has no reason to cover
+// because a forward cannot aim at itself that way.
+func (a *Agent) incomingDialGuard(network string, addr netip.AddrPort) error {
+	if err := a.ownListenerDial(network, addr); err != nil {
+		return err
+	}
+	for _, f := range a.store.Get().Forwards {
+		if f.Direction == config.ToLocal && f.Enabled && f.ListenPort == int(addr.Port()) {
+			return fmt.Errorf("port %d is the forward %q, which is not shared with the tailnet",
+				addr.Port(), f.Name)
+		}
+	}
+	return nil
+}
+
 // withSelfTargetRefusal marks a view whose forward is held off because it points at one
 // of app-tail's own listeners, so the reason is on the forward rather than only in a log.
 func (a *Agent) withSelfTargetRefusal(f config.Forward, view httpapi.ForwardView) httpapi.ForwardView {

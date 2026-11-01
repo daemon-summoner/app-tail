@@ -16,6 +16,8 @@ import (
 	"tailscale.com/net/routecheck"
 	"tailscale.com/types/key"
 	"tailscale.com/types/views"
+
+	"github.com/sellitus/app-tail/internal/config"
 )
 
 // prefixes parses a list of CIDR strings, so a test case reads as the routes it means.
@@ -580,5 +582,35 @@ func TestTailnetRangesAreTheOnesTailscaleAllocatesFrom(t *testing.T) {
 		if inRange(addr) {
 			t.Errorf("%s is inside a tailnet range %v, so public traffic would be classed as tailnet", addr, ranges)
 		}
+	}
+}
+
+func TestAUserspaceNodeReportsItsAddressesAsContained(t *testing.T) {
+	n := newBareNode(t)
+	n.ip4 = netip.MustParseAddr("100.65.45.58")
+	n.ip6 = netip.MustParseAddr("fd7a:115c:a1e0::2836:2d3b")
+
+	if got := n.ContainedAddrs(); len(got) != 2 || got[0] != n.ip4 || got[1] != n.ip6 {
+		t.Errorf("ContainedAddrs() = %v, want both of the node's addresses", got)
+	}
+}
+
+// The hook claims every flow it sees, so answering here on the interface stack would take
+// subnet routes away from the netstack path that carries them.
+func TestAnInterfaceNodeReportsNoContainedAddresses(t *testing.T) {
+	n := New(Options{
+		Params: ServerParams{Hostname: "tun-test", Mode: AuthInteractive, Network: config.NetworkTUN},
+		Logger: quietLogger(),
+	})
+	n.ip4 = netip.MustParseAddr("100.65.45.58")
+
+	if got := n.ContainedAddrs(); len(got) != 0 {
+		t.Errorf("ContainedAddrs() = %v on a node the operating system holds addresses for", got)
+	}
+}
+
+func TestANodeWithNoAddressYetReportsNone(t *testing.T) {
+	if got := newBareNode(t).ContainedAddrs(); len(got) != 0 {
+		t.Errorf("ContainedAddrs() = %v before any address was assigned", got)
 	}
 }

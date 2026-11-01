@@ -302,7 +302,9 @@ it and every library it loads must be owned by root and writable by nobody else.
 that carries its own loader settings is refused. macOS releases use the hardened runtime, so
 libraries can't be injected into the helper.
 
-**Shields and approved routes.** Shields drop inbound tailnet connections. When this device
+**Shields, sharing and approved routes.** Devices your tailnet's access rules allow can reach
+services this machine offers its network, and nothing that listens only on localhost. Shields
+drop inbound tailnet connections, those included. When this device
 shares a subnet, traffic arriving over the tailnet reaches only the addresses the tailnet
 approved, never this machine's own loopback.
 
@@ -334,6 +336,7 @@ deliberately doesn't defend against.
 | **DNS blocking** | 45 lists, six levels, allow and deny lists, pause | `dns-block` | off |
 | **Threat protection** | 17 threat feeds, detect or prevent, anomaly and handshake checks | `ips` | off |
 | **TLS inspection** | open encrypted traffic to chosen destinations for inspection | `ips-intercept` | off |
+| **Incoming connections** | share this machine's network services with your tailnet, like regular Tailscale (TCP) | `allow-incoming` | on |
 | **Shields** | refuse every inbound tailnet connection | `security` + `shields-up` | off |
 | **Traffic meter** | live throughput per connection, with an optional latency probe | always on; probe is `traffic-latency` | on |
 | **Activity log** | what the agent did and why, filterable, also `app-tail log --follow` | `telemetry` | off |

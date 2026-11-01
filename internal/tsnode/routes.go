@@ -55,6 +55,24 @@ func (n *Node) ServeSubnets(h func(src, dst netip.AddrPort) func(net.Conn)) (fun
 	return n.srv.RegisterFallbackTCPHandler(interceptAll(h)), nil
 }
 
+// ContainedAddrs are this node's own tailnet addresses when no operating system interface
+// holds them, so a flow to one reaches this process or nothing. It is empty on the
+// interface stack: there the machine owns these addresses and delivers such flows itself,
+// and a hook installed for them would claim flows netstack has to route.
+func (n *Node) ContainedAddrs() []netip.Addr {
+	if n.params.TUN() {
+		return nil
+	}
+	ip4, ip6 := n.TailnetIPs()
+	var out []netip.Addr
+	for _, ip := range []netip.Addr{ip4, ip6} {
+		if ip.IsValid() {
+			out = append(out, ip)
+		}
+	}
+	return out
+}
+
 // ApprovedRoutes are the networks this node is actually carrying traffic for: the ones an
 // admin approved out of what it advertised, as the control plane reports them back.
 //
@@ -78,8 +96,8 @@ func (n *Node) ApprovedRoutes(ctx context.Context) ([]netip.Prefix, error) {
 // a different feature with different rules -- carrying them here would turn an approval
 // of "offer yourself as an exit node" into this process proxying every destination on
 // the internet. The tailnet's own ranges are dropped because a flow to one of those is
-// either this node's own, and answered by a listener before reaching here, or another
-// peer's, which this node has no business intercepting.
+// either this node's own, which is never a routed network, or another peer's, which this
+// node has no business intercepting.
 func carriedRoutes(approved []netip.Prefix) []netip.Prefix {
 	tailnet := TailnetRanges()
 	var out []netip.Prefix

@@ -354,6 +354,24 @@ var tunnelFields = []TunnelField{
 		set: func(t *Tunnel, v any) { t.ts().RoutesServe = typed[bool](v) },
 	},
 	{
+		JSONKey: "incoming.allow", CLIName: "allow-incoming", Kind: KindBool, Variant: string(TunnelTailscale),
+		Restart: RestartNone, Write: WritePatch,
+		Label: "Allow incoming connections", Group: GroupTailnet, Tier: TierBasic,
+		Tray:    true,
+		Default: true,
+		Help: "Let devices your tailnet's access rules allow reach services on this machine that " +
+			"listen on its network addresses, the same way regular Tailscale does. A service " +
+			"that listens only on localhost stays private; add a forward to share one. This " +
+			"covers TCP only, so a UDP service needs a forward too. The service sees this " +
+			"machine's own address rather than the device that called it. app-tail's own " +
+			"ports are never shared this way.",
+		get: func(t *Tunnel) any { return t.TS().AllowsIncoming() },
+		set: func(t *Tunnel, v any) {
+			allow := typed[bool](v)
+			t.ts().IncomingAllow = &allow
+		},
+	},
+	{
 		JSONKey: "routes.netfilter", Kind: KindString, Variant: string(TunnelTailscale),
 		Restart: RestartNone, Write: WriteNone,
 		Derived: true, Module: ModuleRouting,

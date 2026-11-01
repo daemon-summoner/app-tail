@@ -3,6 +3,41 @@
 [SECURITY.md](../SECURITY.md) has the threat model and how to report a vulnerability
 privately. This page is the operational detail behind it.
 
+## Sharing this machine's services
+
+```
+app-tail connection set tailnet allow-incoming false
+```
+
+`incoming.allow` is on by default, so devices your tailnet's access rules allow can
+reach services on this machine the way they would with regular Tailscale. It belongs to
+one Tailscale connection, and `tailnet` above is that connection's short name.
+
+A service is shared when it listens on this machine's network addresses. One that
+listens only on localhost stays private, because app-tail connects to the service at
+this machine's network address and localhost-only services refuse that. To share one
+anyway, add a forward for that port:
+
+```
+app-tail add --direction to_tailnet --port 8000 --target 127.0.0.1:8000
+```
+
+Four limits are worth knowing:
+
+- It carries TCP only. A UDP service needs a forward, because the tailnet library
+  offers no way to receive UDP that no listener claimed.
+- The service sees this machine's own address as the caller, not the device that
+  connected. Don't rely on the source address to tell them apart.
+- The machine needs a network address to dial. With no Wi-Fi or Ethernet connection,
+  only forwards work.
+- app-tail's own proxy, dashboard, resolver and `to_local` forward ports are never
+  shared. A device your access rules hold back could otherwise use them to reach a
+  third device as this one.
+
+In interface mode the operating system holds the tailnet address and delivers these
+connections itself, so this setting has no effect there. Shields still come first in
+every mode: with `security.shieldsUp` on, nothing here is reachable.
+
 ## Blocking incoming connections and device posture
 
 ```

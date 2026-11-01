@@ -43,6 +43,8 @@ type fakeTailnet struct {
 	reads int
 	// serveErr, when set, is what installing the hook fails with.
 	serveErr error
+	// own is what ContainedAddrs answers: this node's addresses in userspace.
+	own      []netip.Addr
 	handler  func(src, dst netip.AddrPort) func(net.Conn)
 	stops    int
 	installs int
@@ -76,6 +78,12 @@ func (f *fakeTailnet) ServeSubnets(h func(src, dst netip.AddrPort) func(net.Conn
 		f.handler = nil
 		f.stops++
 	}, nil
+}
+
+func (f *fakeTailnet) ContainedAddrs() []netip.Addr {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]netip.Addr(nil), f.own...)
 }
 
 // approve replaces the approved set, standing in for an admin approving a route while
@@ -186,7 +194,9 @@ type harness struct {
 	dialed []string
 	// dialErr, when set, is what dialing a destination fails with.
 	dialErr error
-	mu      sync.Mutex
+	// dialErrTo fails only the addresses it names.
+	dialErrTo map[string]error
+	mu        sync.Mutex
 	// destination is the stand-in host on the routed network. Every dial reaches it,
 	// whatever address was asked for, because what is being tested is the policy that
 	// decides whether to dial at all.
@@ -241,6 +251,9 @@ func (h *harness) dial(ctx context.Context, network, address string) (net.Conn, 
 	h.mu.Lock()
 	h.dialed = append(h.dialed, address)
 	err := h.dialErr
+	if err == nil {
+		err = h.dialErrTo[address]
+	}
 	h.mu.Unlock()
 	if err != nil {
 		return nil, err
@@ -368,4 +381,11 @@ func echoServer(t *testing.T) netip.AddrPort {
 		t.Fatalf("parse the stand-in host's address: %v", err)
 	}
 	return addr
+}
+
+// failDialsTo makes one address fail while every other still reaches the destination.
+func (h *harness) failDialsTo(address string, err error) {
+	h.mu.Lock()
+	h.dialErrTo = map[string]error{address: err}
+	h.mu.Unlock()
 }

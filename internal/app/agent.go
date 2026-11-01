@@ -71,9 +71,11 @@ type NodeController interface {
 
 	// The subnet-router side: ApprovedRoutes is what the tailnet actually routes here,
 	// which is what a carried connection is checked against, and ServeSubnets installs
-	// the hook that delivers those connections at all.
+	// the hook that delivers those connections at all. ContainedAddrs are the node's own
+	// addresses when that same hook is the only way a connection to this device arrives.
 	ApprovedRoutes(ctx context.Context) ([]netip.Prefix, error)
 	ServeSubnets(h func(src, dst netip.AddrPort) func(net.Conn)) (func(), error)
+	ContainedAddrs() []netip.Addr
 	// RouteReachability probes the devices carrying each accepted route, which is the
 	// only thing that distinguishes a route that is wrong from one whose device is away.
 	RouteReachability(ctx context.Context) ([]tsnode.RouteReach, error)
@@ -853,6 +855,7 @@ func (a *Agent) currentNode() NodeController {
 // and closing here would either duplicate that or race it.
 func (a *Agent) publishNode(node NodeController, manager *forward.Manager, router *subnets.Router) {
 	manager.SetDialGuard(a.ownListenerDial)
+	router.SetDialGuard(a.incomingDialGuard)
 	a.mu.Lock()
 	a.node, a.manager, a.subnets = node, manager, router
 	a.mu.Unlock()

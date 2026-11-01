@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"net/netip"
 	"strconv"
@@ -380,4 +381,98 @@ func (n *fakeNames) answer(query []byte) ([]byte, error) {
 		}
 	}
 	return b.Finish()
+}
+
+// logLines collects what the agent logs, which runs on many goroutines at once.
+type logLines struct {
+	mu  sync.Mutex
+	buf strings.Builder
+}
+
+func (l *logLines) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.Write(p)
+}
+
+func (l *logLines) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.String()
+}
+
+// An exposed to_local forward is a door onto another device. A peer the tailnet's access rules
+// keep from that device must not get there through this one under this one's identity. This
+// runs the flow through the agent's own router, so it fails if the guard is not attached.
+func TestADeviceConnectingHereCannotUseAForwardToReachAThirdDevice(t *testing.T) {
+	logs := &logLines{}
+	h := newHarnessWith(t, nil, func(o *Options) {
+		o.Logger = slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	})
+	self := netip.MustParseAddr("100.64.0.9")
+	h.node.mu.Lock()
+	h.node.contained = []netip.Addr{self}
+	h.node.mu.Unlock()
+	h.bringUp()
+
+	listen := freePort(t)
+	if _, err := h.agent.Forwards().Create(context.Background(), httpapi.ForwardSpec{
+		Direction: ptr(config.ToLocal), Protocol: ptr(config.TCP), ListenPort: ptr(listen),
+		BindAddr: ptr("0.0.0.0"), ExposeToNetwork: ptr(true), Target: ptr("third-device:22"),
+	}); err != nil {
+		t.Fatalf("create the forward: %v", err)
+	}
+	waitFor(t, 5*time.Second, "sharing to be installed", h.node.carrying)
+	waitFor(t, 5*time.Second, "the forward to start", func() bool {
+		return h.agent.Forwards().AllRunning()
+	})
+
+	h.node.mu.Lock()
+	hook := h.node.subnetHandler
+	h.node.mu.Unlock()
+	handle := hook(netip.MustParseAddrPort("100.64.0.20:41000"), netip.AddrPortFrom(self, uint16(listen)))
+	if handle == nil {
+		t.Fatal("the flow was refused before the guard could judge the port")
+	}
+	peer, far := net.Pipe()
+	defer peer.Close()
+	go handle(far)
+
+	waitFor(t, 5*time.Second, "the router to explain the refusal", func() bool {
+		return strings.Contains(logs.String(), "not shared with the tailnet") ||
+			strings.Contains(logs.String(), "no network address")
+	})
+	if strings.Contains(logs.String(), "no network address") {
+		t.Skip("this machine has no network address to dial the forward at")
+	}
+}
+
+func TestAppTailsOwnPortFailsTheIncomingGuard(t *testing.T) {
+	h := newHarness(t, nil)
+	dashboard := netip.MustParseAddrPort(h.agent.UIAddr().String())
+
+	err := h.agent.incomingDialGuard("tcp", dashboard)
+	if err == nil || !strings.Contains(err.Error(), "dashboard") {
+		t.Errorf("error = %v, want the dashboard's port refused and named", err)
+	}
+}
+
+func TestPortsThatAreNotAForwardPassTheIncomingGuard(t *testing.T) {
+	h := newHarness(t, nil)
+	h.bringUp()
+	listen, other := freePort(t), freePort(t)
+	if _, err := h.agent.Forwards().Create(context.Background(), httpapi.ForwardSpec{
+		Direction: ptr(config.ToLocal), Protocol: ptr(config.TCP), ListenPort: ptr(listen),
+		Target: ptr("third-device:22"),
+	}); err != nil {
+		t.Fatalf("create the forward: %v", err)
+	}
+
+	lan := netip.MustParseAddr("192.0.2.10")
+	if err := h.agent.incomingDialGuard("tcp", netip.AddrPortFrom(lan, uint16(other))); err != nil {
+		t.Errorf("refused a port nothing in app-tail holds: %v", err)
+	}
+	if err := h.agent.incomingDialGuard("tcp", netip.AddrPortFrom(lan, uint16(listen))); err == nil {
+		t.Error("let a connection through to a to_local forward's port")
+	}
 }

@@ -332,11 +332,12 @@ func TestAFreshInstallStartsWithThePrimaryConnection(t *testing.T) {
 	if cfg.Version != ConfigVersion {
 		t.Errorf("version = %d, want %d", cfg.Version, ConfigVersion)
 	}
-	if _, ok := cfg.Tunnel(PrimaryTunnelID); !ok {
-		t.Errorf("connections = %+v, want the primary one", cfg.Tunnels)
+	primary, ok := cfg.Tunnel(PrimaryTunnelID)
+	if !ok {
+		t.Fatalf("connections = %+v, want the primary one", cfg.Tunnels)
 	}
-	if _, ok := cfg.TunnelBySlug(PrimaryTunnelSlug); !ok {
-		t.Errorf("no connection answers to %q", PrimaryTunnelSlug)
+	if primary.Slug != PrimaryTunnelSlug {
+		t.Errorf("the primary connection answers to %q, want %q", primary.Slug, PrimaryTunnelSlug)
 	}
 }
 
