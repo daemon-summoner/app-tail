@@ -107,6 +107,7 @@ func (r *ipsFeedRunner) refresh(ctx context.Context, want []config.IPSFeed, ever
 // copy. A body that yields no entry at all is refused and the previous copy kept: a captive
 // portal's sign-in page parses as a file of comments, and a feed that has quietly become one
 // would otherwise replace a working copy with nothing.
+// A body that yields a small fraction of what the copy in force holds is refused the same way.
 func (r *ipsFeedRunner) download(ctx context.Context, f config.IPSFeed, prev feeds.State) error {
 	fetchCtx, cancel := context.WithTimeout(ctx, feedFetchTimeout)
 	defer cancel()
@@ -135,6 +136,14 @@ func (r *ipsFeedRunner) download(ctx context.Context, f config.IPSFeed, prev fee
 		return fmt.Errorf("update %s: %s", f.Name, st.Error)
 	}
 
+	if collapsed(len(entries), prev.Rules) {
+		st = prev
+		st.Error = fmt.Sprintf("what %s answered with holds %d addresses where the copy in force holds %d; "+
+			"the copy in force was kept", f.URL, len(entries), prev.Rules)
+		r.cache.SetState(f.ID, st)
+		return fmt.Errorf("update %s: %s", f.Name, st.Error)
+	}
+
 	if err := r.cache.Store(f.ID, got.Body); err != nil {
 		st = prev
 		st.Error = err.Error()
@@ -148,6 +157,20 @@ func (r *ipsFeedRunner) download(ctx context.Context, f config.IPSFeed, prev fee
 	st.Bytes, st.Rules, st.Skipped = len(got.Body), len(entries), skipped
 	r.cache.SetState(f.ID, st)
 	return nil
+}
+
+// What a feed has to hold before a download is judged against it, and the fraction of it a
+// download has to reach. A small feed swings by more than this from one day to the next; a
+// large one does not lose nine entries in ten between two refreshes unless the file was cut
+// short on the way or the address now serves something else.
+const (
+	collapseFloor    = 100
+	collapseFraction = 10
+)
+
+// collapsed reports a download too small beside the copy in force to be the same feed.
+func collapsed(now, before int) bool {
+	return before >= collapseFloor && now*collapseFraction < before
 }
 
 // sources reads every cached copy into one matcher source each.

@@ -107,6 +107,12 @@ things that would break that promise:
   than the forward's target.
 - A forward that targets one of app-tail's own listeners: the dashboard, a proxy, or
   the resolver.
+- A connection through the tailnet proxy reaching one of app-tail's own listeners, which
+  would let another account redeem your sign-in link.
+- A second copy of the program closing a running agent without holding its API token, or
+  a signal reaching a process that is not another copy of the program.
+- A hostile network's search domain, a CNAME chain or a feed download switching off a
+  blocklist rule you turned on.
 - Anything that makes the agent bind a non-loopback address for its dashboard.
 - The tailnet proxy carrying a destination outside its configured scope, or
   falling back to a direct connection instead of refusing one. Failing closed is
@@ -489,6 +495,9 @@ These are deliberate, and each one is enforced somewhere in the code:
 - `config.json`, `secrets.json`, `api-token` and the node identity are written
   `0600` through a temp-file rename, so a crash cannot leave a truncated or
   world-readable file.
+- `secrets.json` and `tls/ca.key` are checked when they are loaded. One that other
+  accounts can read, or that another account owns, stops the start with the `chmod`
+  that fixes it. Restoring a backup can widen the mode, so set it back to `0600`.
 - app-tail does not upload logs to Tailscale, and login URLs are kept out of its
   own logs.
 
@@ -500,9 +509,16 @@ branches; upgrading is the fix. A security fix is called out in
 
 ## Dependencies
 
-`./verify.sh` and every CI run gate on `govulncheck` against the full module
-graph and on `gitleaks` over both the working tree and the git history. A known
-vulnerability in a reachable dependency fails the build rather than warning.
+Every CI run gates on `govulncheck` against the full module graph and on
+`gitleaks` over both the working tree and the git history. CI installs a pinned
+version of each, and `gitleaks` only after its archive matches a pinned SHA-256,
+so a run fails if either scanner cannot be installed. A known vulnerability in a
+reachable dependency fails the build rather than warning.
+
+`./verify.sh` runs the same two scans. On a developer's machine a scanner that
+is not installed is reported as `N/A` and the rest of the gate goes on, so a
+local pass with an `N/A` beside either one is not a scan. With `CI=true` in the
+environment a missing scanner fails `./verify.sh` instead.
 
 `wintun.dll` is outside that graph. It is a binary the Windows archive carries
 rather than a module the build links, so it is pinned by SHA-256 in app-tail itself

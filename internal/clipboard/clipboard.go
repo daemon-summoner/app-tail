@@ -57,12 +57,19 @@ func copyWith(ctx context.Context, candidates [][]string, text string) error {
 // checkText rejects what a clipboard cannot usefully hold. An empty copy is the one
 // worth naming: it leaves whatever was there before, so the click reads as having done
 // nothing at all.
+//
+// What is copied is a device's address or name, which another device on the tailnet
+// chose and which is one line by nature. A second line pasted into a terminal is a
+// command that runs, so a line break of any kind is refused.
 func checkText(text string) error {
 	if text == "" {
 		return errors.New("there is nothing to copy")
 	}
 	for _, r := range text {
-		if r != '\n' && r != '\t' && unicode.IsControl(r) {
+		switch {
+		case r == '\n', r == '\r', r == '\u2028', r == '\u2029':
+			return fmt.Errorf("refusing to copy %q: it is more than one line", text)
+		case r != '\t' && unicode.IsControl(r):
 			return fmt.Errorf("refusing to copy %q: it contains a control character", text)
 		}
 	}

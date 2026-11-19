@@ -3,7 +3,9 @@
 package ipsfeed
 
 import (
+	"bytes"
 	"net/netip"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -200,5 +202,68 @@ func TestOneHugeLineIsOneSkippedLine(t *testing.T) {
 	}
 	if skipped != 1 {
 		t.Errorf("skipped = %d, want 1", skipped)
+	}
+}
+
+// A feed is a list of hosts and networks seen misbehaving, and no honest one names a sixteenth
+// of the internet. An entry that wide is a mistake or a compromised feed, and in prevent mode
+// it is an outage.
+func TestANetworkTooWideToBeAFindingIsNeverPutInForce(t *testing.T) {
+	body := []byte(strings.Join([]string{
+		"2.0.0.0/7",
+		"32.0.0.0/3",
+		"2000::/3",
+		"2a00::/15",
+		"8.0.0.0/8",
+		"2a00::/16",
+		"1.2.3.0/24",
+	}, "\n"))
+
+	entries, skipped := Parse(body)
+
+	want := []string{"8.0.0.0/8", "2a00::/16", "1.2.3.0/24"}
+	if !slices.Equal(entries, want) {
+		t.Errorf("entries = %v, want %v", entries, want)
+	}
+	if skipped != 4 {
+		t.Errorf("skipped = %d, want 4 (every network wider than the widest a feed may carry)", skipped)
+	}
+}
+
+// A feed is capped by its size in bytes, and a body of nothing but line endings is the most
+// lines that size can hold. Reading must cost what the body costs, not a multiple of it per
+// line.
+func TestReadingAFeedDoesNotCostAMultipleOfTheFeedItself(t *testing.T) {
+	const lines = 1 << 20
+	body := bytes.Repeat([]byte("\n"), lines)
+
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	entries, skipped := Parse(body)
+	runtime.ReadMemStats(&after)
+
+	if len(entries) != 0 || skipped != 0 {
+		t.Errorf("a body of line endings parsed to %d entries and %d skipped, want none of either", len(entries), skipped)
+	}
+	// A string header per line is around 16 MiB on top of the 1 MiB body. Four times the body
+	// leaves room for the walk's own allocations and still fails once the cost is per line.
+	if grew := after.TotalAlloc - before.TotalAlloc; grew > 4*uint64(len(body)) {
+		t.Errorf("reading a %d-byte body allocated %d bytes, which is a cost per line", len(body), grew)
+	}
+}
+
+func TestAFeedIsReadTheSameWhateverItsLineEndingsAre(t *testing.T) {
+	want := []string{"203.0.113.0/24", "198.51.100.7/32", "192.0.2.9/32"}
+	for name, body := range map[string]string{
+		"unix":                "203.0.113.0/24\n198.51.100.7 # seen 40 times\n192.0.2.9\n",
+		"windows":             "203.0.113.0/24\r\n198.51.100.7 ; seen 40 times\r\n192.0.2.9\r\n",
+		"no final line end":   "203.0.113.0/24\n198.51.100.7\n192.0.2.9",
+		"blank lines between": "\n\n203.0.113.0/24\n\n198.51.100.7\n\r\n192.0.2.9\n\n",
+	} {
+		entries, skipped := Parse([]byte(body))
+		if !slices.Equal(entries, want) || skipped != 0 {
+			t.Errorf("%s: entries = %v with %d skipped, want %v and none", name, entries, skipped, want)
+		}
 	}
 }

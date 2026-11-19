@@ -142,6 +142,61 @@ func answerAddresses(msg []byte, name string) ([]netip.Addr, error) {
 	return out, nil
 }
 
+// aliasTargets are the names an answer says the asked name is an alias for, in the order the
+// chain is followed.
+//
+// An answer whose records cannot be read to the end is an error and not a shorter chain: the
+// part that would not read is where the alias the caller is looking for may be.
+//
+// The records are collected before the chain is walked, so the order they arrive in does not
+// decide what is found, and each name is followed once, so aliases that point at each other
+// end.
+func aliasTargets(msg []byte, name string) ([]string, error) {
+	var p dnsmessage.Parser
+	if _, err := p.Start(msg); err != nil {
+		return nil, errMalformed
+	}
+	if err := p.SkipAllQuestions(); err != nil {
+		return nil, errMalformed
+	}
+	aliases := make(map[string]string)
+	for {
+		h, err := p.AnswerHeader()
+		if errors.Is(err, dnsmessage.ErrSectionDone) {
+			break
+		}
+		if err != nil {
+			return nil, errMalformed
+		}
+		if h.Type != dnsmessage.TypeCNAME {
+			if err := p.SkipAnswer(); err != nil {
+				return nil, errMalformed
+			}
+			continue
+		}
+		body, err := p.CNAMEResource()
+		if err != nil {
+			return nil, errMalformed
+		}
+		owner := strings.TrimSuffix(strings.ToLower(h.Name.String()), ".")
+		if _, seen := aliases[owner]; !seen {
+			aliases[owner] = strings.TrimSuffix(strings.ToLower(body.CNAME.String()), ".")
+		}
+	}
+
+	var out []string
+	followed := map[string]bool{name: true}
+	for at := name; ; {
+		target, ok := aliases[at]
+		if !ok || followed[target] {
+			return out, nil
+		}
+		followed[target] = true
+		out = append(out, target)
+		at = target
+	}
+}
+
 // joinErrors renders several failures as one line. errors.Join's newlines end up in a
 // dashboard field, where a multi-line reason renders as one run-on sentence anyway.
 func joinErrors(errs []error) error { return inlineErrors(errs) }

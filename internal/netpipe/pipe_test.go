@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"os"
 	"testing"
 	"time"
 )
@@ -531,5 +532,103 @@ func TestAConnectionThatCarriesItsOwnResetIsCutThroughIt(t *testing.T) {
 	}
 	if c.closed != 0 {
 		t.Errorf("Close was called %d times; cutting is the whole teardown for this shape", c.closed)
+	}
+}
+
+// copyingIdle runs CopyIdle between two fresh loopback pairs and hands back the two far
+// ends and where its result arrives.
+func copyingIdle(t *testing.T, idle time.Duration) (clientPeer, upstreamPeer net.Conn, done <-chan error) {
+	t.Helper()
+	clientPeer, client := dialPair(t)
+	upstream, upstreamPeer := dialPair(t)
+	result := make(chan error, 1)
+	go func() { result <- CopyIdle(context.Background(), client, upstream, nil, nil, nil, idle) }()
+	return clientPeer, upstreamPeer, result
+}
+
+// A connection whose two ends both went away without a word never fails a read, so nothing
+// but a clock ends it. Without one it holds its descriptors and its place in whatever budget
+// its caller keeps for as long as the process runs.
+func TestAConnectionCarryingNothingIsEndedAtItsIdleLimit(t *testing.T) {
+	const idle = 100 * time.Millisecond
+	clientPeer, upstreamPeer, done := copyingIdle(t, idle)
+
+	began := time.Now()
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrIdle) {
+			t.Fatalf("CopyIdle returned %v, want ErrIdle", err)
+		}
+		if quiet := time.Since(began); quiet < idle {
+			t.Errorf("the connection was ended after %s, before its %s limit", quiet, idle)
+		}
+	case <-time.After(ioDeadline):
+		t.Fatal("a connection carrying nothing was still open long after its idle limit")
+	}
+
+	// Both far ends are told, rather than left holding a connection nothing serves.
+	for name, peer := range map[string]net.Conn{"client": clientPeer, "upstream": upstreamPeer} {
+		peer.SetReadDeadline(time.Now().Add(ioDeadline))
+		if _, err := peer.Read(make([]byte, 1)); err == nil || errors.Is(err, os.ErrDeadlineExceeded) {
+			t.Errorf("the %s end read %v, want the connection closed under it", name, err)
+		}
+	}
+}
+
+// Idle is a fact about the connection, not about one direction of it. A transfer that only
+// ever moves one way is in use for as long as it moves.
+func TestTrafficInOneDirectionAloneKeepsAConnectionOpen(t *testing.T) {
+	const idle = 400 * time.Millisecond
+	clientPeer, upstreamPeer, done := copyingIdle(t, idle)
+
+	// Downstream only, for several idle limits end to end, each gap well inside one.
+	for i := range 12 {
+		if _, err := upstreamPeer.Write([]byte{byte(i)}); err != nil {
+			t.Fatalf("write %d from upstream: %v", i, err)
+		}
+		if got := readFull(t, clientPeer, 1); got[0] != byte(i) {
+			t.Fatalf("the client read %v, want %d", got, i)
+		}
+		select {
+		case err := <-done:
+			t.Fatalf("the connection was ended (%v) while traffic was still crossing it", err)
+		case <-time.After(idle / 4):
+		}
+	}
+
+	// And it still ends once that traffic stops.
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrIdle) {
+			t.Fatalf("CopyIdle returned %v, want ErrIdle", err)
+		}
+	case <-time.After(ioDeadline):
+		t.Fatal("the connection outlived its idle limit after the traffic stopped")
+	}
+}
+
+// No limit is the contract every existing caller has: a connection is held for as long as
+// its two ends hold it.
+func TestWithoutAnIdleLimitAQuietConnectionStaysOpen(t *testing.T) {
+	clientPeer, upstreamPeer, done := copyingIdle(t, 0)
+
+	select {
+	case err := <-done:
+		t.Fatalf("a connection with no idle limit was ended while quiet: %v", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	if _, err := clientPeer.Write([]byte("late")); err != nil {
+		t.Fatalf("write after the quiet spell: %v", err)
+	}
+	if got := readFull(t, upstreamPeer, 4); string(got) != "late" {
+		t.Errorf("upstream read %q after the quiet spell, want %q", got, "late")
+	}
+	clientPeer.Close()
+	upstreamPeer.Close()
+	select {
+	case <-done:
+	case <-time.After(ioDeadline):
+		t.Fatal("the copy did not end when both ends closed")
 	}
 }

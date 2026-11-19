@@ -156,6 +156,15 @@ administrator to approve them once; see [Security](#security) below.
   and the port drifted again on every recurrence. Where it is listening is now recorded
   in `<stateDir>/dashboard-address`, which the CLI and tray read first; the setting
   stays what you asked for and is tried again on the next start.
+- **A TCP forward survives running out of file descriptors.** Accept errors from
+  descriptor or buffer exhaustion and aborted connections are retried with a delay from
+  50 ms to 1 s, and the forward shows why, instead of stopping for good.
+- **A one-way UDP flow is no longer cut every two or three minutes.** A flow is idle only
+  when both directions are quiet, so a stream that only arrives (video, syslog) stays up.
+- **One slow UDP client no longer stalls the others on a forward.** New clients are set up
+  in the background, at most 64 at once, and a full table drops the least recently used.
+- **Planning many device forwards is fast again**, and the proxy's name cache is bounded
+  at 1024 names and forgets answers past their lifetime.
 
 ### Security
 
@@ -201,6 +210,63 @@ administrator to approve them once; see [Security](#security) below.
 - **The traffic-interception root is limited** to server certificates, to the names you
   chose (X.509 name constraints), and to one year. `app-tail ips remove-root` takes an old
   one out.
+- **A network cannot take names out from under the blocklist.** A search domain the
+  network publishes that is itself a public suffix (`com`, `co.uk`) is ignored, so it can
+  no longer send every lookup under it, unfiltered, to that network's own resolver. Private
+  names such as `lan`, `home` and `home.arpa` still work.
+- **Blocking follows aliases.** A name whose CNAME chain reaches a blocked name is answered
+  as blocked, which is what makes a cloaking list do anything. When a list is in force and
+  an answer cannot be read to check it, the answer is `SERVFAIL` rather than passed on.
+- **A bad feed cannot take the network down with it.** Address feeds skip networks wider
+  than /8 (IPv4) or /16 (IPv6). Name feeds skip an exception that covers a whole public
+  suffix, because an exception beats a block. A download under a tenth of the copy you
+  already hold (once that copy has 100 entries) is refused and the old copy stays in force.
+  Feed downloads also refuse the NAT64, 6to4 and IPv4-compatible spellings of private
+  addresses, and `0.0.0.0/8`, `198.18.0.0/15` and `240.0.0.0/4`.
+- **DNS over HTTPS answers are checked.** The upstream is refused if it redirects, sends
+  anything but `application/dns-message`, sends more than the size cap, or answers a
+  question other than the one asked. A query carrying anything but one question gets
+  `FORMERR`.
+- **Traffic inspection reads what it used to skip.** A connection that ends before 4 KB
+  has crossed is now checked against the signatures when it closes; that match is recorded
+  as a detection, since the bytes were already delivered, and never counted as a refusal.
+  A DNS name written with a compression pointer is read as the name it points to, and UDP
+  forwards are inspected like TCP ones.
+- **The proxy cannot be used to reach app-tail itself.** A connection through the proxy to
+  one of app-tail's own listeners is refused, which closes a way for another account on the
+  machine to use the proxy to redeem your sign-in link. Tunnels end after two hours with
+  nothing crossing them, and one proxy carries at most 512 at a time.
+- **The proxy refuses a name no rule could allow before looking it up**, so a refused
+  destination no longer reaches the tailnet's resolvers.
+- **The approval command shown for a refused change is shell-quoted**, and the PowerShell
+  form doubles typographic single quotes.
+- **The dashboard answers only to `127.0.0.1`, `[::1]` and `localhost`.** Other
+  `*.localhost` names are refused, since a browser may send them to DNS.
+- **Refused API requests are logged at most five times a minute**, with a count of the
+  rest, so a local loop cannot fill the log.
+- **A login address is only shown as a link or QR code when it is `http` or `https`.**
+- **Copying a device name or address refuses text with a line break.**
+- **CI pins what it runs.** Actions are pinned by commit, the scanner downloads are checked
+  against a SHA-256 before they are unpacked, and `./verify.sh` fails with `CI=true` when
+  `govulncheck` or `gitleaks` is missing instead of passing silently.
+- **Starting a second copy proves who it is before it closes the first.** The request to
+  quit carries the API token, so another account cannot shut your agent down. Signals are
+  sent only to a process that is another copy of the program, never to whatever now holds
+  a recycled process id.
+- **Credential files are refused when other accounts can read them.** `secrets.json` and
+  `tls/ca.key` must be `0600` and owned by you, and a file that is not stops the start with
+  the `chmod` that repairs it. A backup restored with looser permissions needs
+  `chmod 600` before the agent will load it. On Windows the state folder and the token
+  file must belong to you or to Administrators.
+- **`set-routes` refuses stateful filtering.** The helper turns down a route set that
+  would switch it on, since that changes how the machine forwards traffic and needs an
+  administrator's approval first.
+- **The installer asks for your password only at the step that needs it**, and installs
+  the helper from a root-owned copy, so a build that changes the binary after the prompt
+  cannot slip in. The OpenVPN bundle is staged root-owned and checked again before it is
+  installed.
+- **A Linux login item with `%` or `$` in the program path starts the right program**, and
+  a path with a control character is refused instead of written into the unit.
 
 ## 0.1.0
 

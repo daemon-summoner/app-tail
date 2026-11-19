@@ -101,10 +101,11 @@ func (k *Keys) Rotate() error {
 // readToken opens the token file without following a symlink, and checks the opened file
 // itself -- not the path, which could be swapped between a check and an open.
 func readToken(path string) (string, error) {
-	f, err := os.OpenFile(path, os.O_RDONLY|openNoFollow, 0)
+	f, err := fileown.OpenPrivate(path)
 	if err != nil {
-		if isSymlinkRefusal(err) {
-			return "", fmt.Errorf("%w: %s is a symbolic link", errUntrusted, path)
+		var loose *fileown.NotPrivateError
+		if errors.As(err, &loose) {
+			return "", fmt.Errorf("%w: %s %s", errUntrusted, loose.Path, loose.Reason)
 		}
 		if errors.Is(err, fs.ErrNotExist) {
 			return "", fmt.Errorf("read the API token: %w", err)
@@ -112,17 +113,6 @@ func readToken(path string) (string, error) {
 		return "", fmt.Errorf("open the API token %s: %w", path, err)
 	}
 	defer f.Close()
-
-	info, err := f.Stat()
-	if err != nil {
-		return "", fmt.Errorf("inspect the API token %s: %w", path, err)
-	}
-	if !info.Mode().IsRegular() {
-		return "", fmt.Errorf("%w: %s is not a regular file", errUntrusted, path)
-	}
-	if reason := untrustedFile(info); reason != "" {
-		return "", fmt.Errorf("%w: %s %s", errUntrusted, path, reason)
-	}
 
 	data, err := io.ReadAll(io.LimitReader(f, maxTokenFileBytes))
 	if err != nil {

@@ -11,6 +11,7 @@ package hostnet
 // is the narrow shape instead: three lists of address ranges and a packet size.
 
 import (
+	"errors"
 	"fmt"
 	"net/netip"
 	"slices"
@@ -181,6 +182,10 @@ func validateRouterConfig(cfg *router.Config) error {
 	case "", "nftables", "iptables":
 	default:
 		return fmt.Errorf("%q is not a firewall this app knows how to drive", cfg.NetfilterKind)
+	}
+	// The agent's engine never sets this, so a request carrying it did not come from one.
+	if cfg.StatefulFiltering {
+		return errors.New("connection filtering for forwarded traffic is not something this app switches on")
 	}
 	return nil
 }

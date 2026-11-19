@@ -167,7 +167,13 @@ func newTestManager(t *testing.T, tn Tailnet) *Manager {
 // to take the connection down or bring it back.
 func newTestManagerOver(t *testing.T, nets Tailnets) *Manager {
 	t.Helper()
-	m := NewManager(nets, testSettings, quietLogger())
+	return newTestManagerLogging(t, nets, quietLogger())
+}
+
+// newTestManagerLogging is newTestManagerOver for a test that reads what the manager logs.
+func newTestManagerLogging(t *testing.T, nets Tailnets, logger *slog.Logger) *Manager {
+	t.Helper()
+	m := NewManager(nets, testSettings, logger)
 	m.janitorInterval = 20 * time.Millisecond
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

@@ -53,8 +53,8 @@ scripts, send the token from `api-token` in the state directory as a bearer toke
 
 **The dashboard returns 403.** Either you reached it by a name the Host guard does not
 recognise, or (on macOS and Linux) a sign-in link that `app-tail dashboard` or the tray
-opened was redeemed by a browser running as a different account. For the first, use `127.0.0.1`, `localhost` or a
-`*.localhost` name, and forward the port over SSH rather than through `tailscale serve`. For
+opened was redeemed by a browser running as a different account. For the first, use `127.0.0.1`, `[::1]` or
+`localhost` (other `*.localhost` names are refused), and forward the port over SSH rather than through `tailscale serve`. For
 the second, use `app-tail dashboard --print` and open the printed link yourself: a printed
 link works from any account.
 

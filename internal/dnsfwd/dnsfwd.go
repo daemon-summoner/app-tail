@@ -293,6 +293,28 @@ func (f *Forwarder) resolve(ctx context.Context, cfg *Config, q Question, query 
 		return response(q, dnsmessage.RCodeServerFailure)
 	}
 
+	if toProfile && cfg.Rules.Block != nil {
+		// A list is read against what a name turns out to be as well as what was asked for:
+		// a blocked name reached through an alias on a name nobody listed is still the blocked
+		// name, and the addresses in this answer are its addresses. Each alias goes through
+		// routing, so one this network answers for is as exempt here as it is when asked.
+		aliases, err := aliasTargets(resp, q.Name)
+		if err != nil {
+			// An answer that cannot be read cannot be shown to be clear of the list, and
+			// whatever reads it more leniently than this does would be handed it unchecked.
+			f.failures.Add(1)
+			f.logf(cfg, "dns: the answer for %s (%s) could not be checked against the lists: %v", q, decision.Reason, err)
+			return response(q, dnsmessage.RCodeServerFailure)
+		}
+		for _, alias := range aliases {
+			target := Question{Name: alias, Type: q.Type, Class: q.Class}
+			if hit := Route(target, cfg.Rules); hit.Target == Blocked {
+				f.blocked.Add(1)
+				return blockedAnswer(q, cfg.Rules.BlockAnswer)
+			}
+		}
+	}
+
 	if toProfile && cfg.RetryOnNXDOMAIN && isNXDomain(resp) {
 		if second, err := f.exchange(ctx, cfg.Local, outbound, stream); err == nil && !isNXDomain(second) {
 			f.toLocal.Add(1)

@@ -57,9 +57,16 @@ func newDoHUpstream(u dnsprofiles.Upstream, tlsConfig *tls.Config) (*dohUpstream
 		TLSHandshakeTimeout: dialTimeout,
 	}
 	return &dohUpstream{
-		label:  u.Text,
-		url:    u.URL,
-		client: &http.Client{Transport: transport, Timeout: queryTimeout},
+		label: u.Text,
+		url:   u.URL,
+		client: &http.Client{
+			Transport: transport,
+			Timeout:   queryTimeout,
+			// A redirect is handed back as the answer it is, and fails on its status. The
+			// resolver is the URL the profile names; following it somewhere else would ask a
+			// resolver nobody chose.
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		},
 	}, nil
 }
 
@@ -73,6 +80,10 @@ func (d *dohUpstream) Close() error {
 // Exchange posts the query and returns the body. The stream hint means nothing here: an
 // HTTPS response is not length-limited, so there is no truncated form to retry.
 func (d *dohUpstream) Exchange(ctx context.Context, query []byte, _ bool) ([]byte, error) {
+	question, err := parseQuestion(query)
+	if err != nil {
+		return nil, err
+	}
 	body := make([]byte, len(query))
 	copy(body, query)
 	clientID, _ := queryID(body)
@@ -97,15 +108,23 @@ func (d *dohUpstream) Exchange(ctx context.Context, query []byte, _ bool) ([]byt
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("%s answered HTTP %s", d.label, resp.Status)
 	}
-	if ct := resp.Header.Get("Content-Type"); ct != "" && !isDoHMedia(ct) {
-		return nil, fmt.Errorf("%s answered %s, which is not a DNS message", d.label, ct)
+	if ct := resp.Header.Get("Content-Type"); !isDoHMedia(ct) {
+		return nil, fmt.Errorf("%s answered %q, which is not a DNS message", d.label, ct)
 	}
-	answer, err := io.ReadAll(io.LimitReader(resp.Body, maxStreamAnswer))
+	// One byte past the most a message can be, so a longer body is seen to be longer rather
+	// than cut to a length that happens to parse.
+	answer, err := io.ReadAll(io.LimitReader(resp.Body, maxStreamAnswer+1))
 	if err != nil {
 		return nil, fmt.Errorf("read the answer from %s: %w", d.label, err)
 	}
+	if len(answer) > maxStreamAnswer {
+		return nil, fmt.Errorf("%s answered more than the %d bytes a DNS message can be", d.label, maxStreamAnswer)
+	}
 	if len(answer) < 12 {
 		return nil, fmt.Errorf("%s answered %d bytes, which is not a DNS message", d.label, len(answer))
+	}
+	if !isResponse(answer) || !answersQuestion(answer, question) {
+		return nil, fmt.Errorf("%s answered with something that is not an answer to %s", d.label, question)
 	}
 	setID(answer, clientID)
 	return answer, nil

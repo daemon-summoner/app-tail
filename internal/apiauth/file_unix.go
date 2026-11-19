@@ -5,36 +5,10 @@
 package apiauth
 
 import (
-	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"syscall"
 )
-
-const openNoFollow = syscall.O_NOFOLLOW
-
-// isSymlinkRefusal reports the error O_NOFOLLOW gives for a symlink: ELOOP on Linux and
-// macOS, EMLINK on the BSDs.
-func isSymlinkRefusal(err error) bool {
-	return errors.Is(err, syscall.ELOOP) || errors.Is(err, syscall.EMLINK)
-}
-
-// untrustedFile says why an opened token file cannot be trusted, or "" when it can: it
-// must belong to this account and grant nothing to the group or to anyone else.
-func untrustedFile(info fs.FileInfo) string {
-	st, ok := info.Sys().(*syscall.Stat_t)
-	if !ok {
-		return "could not be checked for its owner"
-	}
-	if int(st.Uid) != os.Geteuid() {
-		return fmt.Sprintf("belongs to another account (uid %d)", st.Uid)
-	}
-	if perm := info.Mode().Perm(); perm&0o077 != 0 {
-		return fmt.Sprintf("can be read by other accounts (mode %#o)", perm)
-	}
-	return ""
-}
 
 // checkDir refuses a token directory another account owns or can write, since whoever can
 // write it can put a file of their own at the token's path.

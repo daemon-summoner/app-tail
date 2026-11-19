@@ -28,9 +28,28 @@ type fakeInspector struct {
 	// open answers the pair a flow is carried between, nil in every test that does not
 	// exercise opening one.
 	open func(inspect.Flow, net.Conn, net.Conn) (net.Conn, net.Conn, error)
+	// watchDatagrams hands out the reader for one client's datagrams, nil for none.
+	watchDatagrams func(inspect.Flow) netpipe.Stream
 
-	mu   sync.Mutex
-	seen []inspect.Flow
+	mu        sync.Mutex
+	seen      []inspect.Flow
+	datagrams []inspect.Flow
+}
+
+func (f *fakeInspector) WatchDatagrams(flow inspect.Flow) netpipe.Stream {
+	f.mu.Lock()
+	f.datagrams = append(f.datagrams, flow)
+	f.mu.Unlock()
+	if f.watchDatagrams == nil {
+		return nil
+	}
+	return f.watchDatagrams(flow)
+}
+
+func (f *fakeInspector) datagramFlows() []inspect.Flow {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]inspect.Flow(nil), f.datagrams...)
 }
 
 func (f *fakeInspector) Open(_ context.Context, flow inspect.Flow, client, upstream net.Conn) (net.Conn, net.Conn, error) {
@@ -138,6 +157,48 @@ func newRecordingServer(t *testing.T) *recordingServer {
 		}
 	}()
 	return server
+}
+
+// recordingUDP echoes every datagram it is sent and keeps each one, for the same reason
+// recordingServer keeps its bytes.
+type recordingUDP struct {
+	addr string
+
+	mu  sync.Mutex
+	got []string
+}
+
+func newRecordingUDP(t *testing.T) *recordingUDP {
+	t.Helper()
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("start a datagram server: %v", err)
+	}
+	t.Cleanup(func() { pc.Close() })
+
+	server := &recordingUDP{addr: pc.LocalAddr().String()}
+	go func() {
+		buf := make([]byte, 65535)
+		for {
+			n, from, err := pc.ReadFrom(buf)
+			if err != nil {
+				return
+			}
+			server.mu.Lock()
+			server.got = append(server.got, string(buf[:n]))
+			server.mu.Unlock()
+			if _, err := pc.WriteTo(buf[:n], from); err != nil {
+				return
+			}
+		}
+	}()
+	return server
+}
+
+func (s *recordingUDP) received() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.got...)
 }
 
 func (s *recordingServer) received() []byte {

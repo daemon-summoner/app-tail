@@ -323,3 +323,17 @@ func TestARefusalMatchesErrNeedsGrantAndNamesTheCommandThatApprovesIt(t *testing
 		t.Fatal("an unrelated error matches ErrNeedsGrant")
 	}
 }
+
+// The refusal is shown to whoever asked for the change, who pastes the command it names
+// into a shell. A server name is the remote's to choose, so an argument the shell would
+// act on has to arrive quoted here as it does in the approval command.
+func TestARefusalQuotesAnArgumentAShellWouldActOn(t *testing.T) {
+	err := error(&MissingGrants{Needs: []Need{
+		{Kind: KindFullTunnel, Reason: "carry everything"},
+		{Kind: KindOpenVPNRemote, Value: "a$(reboot):1194", CASHA256: []string{"aa"}, Reason: "start openvpn"},
+	}})
+	want := "`app-tail tun grant --full-tunnel '--openvpn=a$(reboot):1194=aa'`"
+	if !strings.Contains(err.Error(), want) {
+		t.Fatalf("refusal %q does not name %s", err, want)
+	}
+}

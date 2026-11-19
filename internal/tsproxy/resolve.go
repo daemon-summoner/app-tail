@@ -24,6 +24,11 @@ const (
 	maxResolveTTL = 5 * time.Minute
 )
 
+// maxResolvedNames bounds how many answers are remembered at once. The names are whatever
+// the programs using a proxy ask for, so without a ceiling the cache is as large as the
+// longest list of names any of them cares to send.
+const maxResolvedNames = 1024
+
 // resolve turns a destination into the address the dial will actually be made to, and the
 // connection that carries it.
 //
@@ -101,7 +106,8 @@ func (s *Set) privateAddr(ctx context.Context, host string) (netip.Addr, bool, e
 			continue
 		}
 		addr := lookup.Addrs[0]
-		s.resolved.put(host, addr, s.now().Add(cacheFor(lookup.TTL)))
+		now := s.now()
+		s.resolved.put(host, addr, now, now.Add(cacheFor(lookup.TTL)))
 		return addr, true, nil
 	}
 
@@ -146,11 +152,30 @@ func (c *resolveCache) get(host string, now time.Time) (netip.Addr, bool) {
 	return entry.addr, true
 }
 
-func (c *resolveCache) put(host string, addr netip.Addr, expires time.Time) {
+// put remembers an answer, first forgetting every answer whose lifetime has run out and,
+// if the cache is still full, the one with the least of its lifetime left.
+//
+// Every put walks everything remembered. It follows a round trip to a resolver, next to
+// which a pass over a bounded map is nothing, and it is the only place an answer nobody
+// asks about again is ever looked at.
+func (c *resolveCache) put(host string, addr netip.Addr, now, expires time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.names == nil {
 		c.names = make(map[string]resolvedName)
+	}
+	var soonest string
+	for name, entry := range c.names {
+		if !now.Before(entry.expires) {
+			delete(c.names, name)
+			continue
+		}
+		if held, ok := c.names[soonest]; !ok || entry.expires.Before(held.expires) {
+			soonest = name
+		}
+	}
+	if _, known := c.names[host]; !known && len(c.names) >= maxResolvedNames {
+		delete(c.names, soonest)
 	}
 	c.names[host] = resolvedName{addr: addr, expires: expires}
 }

@@ -167,6 +167,34 @@ describe('the sign-in code', () => {
 
     expect(container.querySelector('.qr')).not.toBeInTheDocument()
   })
+
+  // The address is the control server's to choose, and a link is followed with a click.
+  // Anything but a web page -- a script, a document carried in the address itself, another
+  // program's scheme -- is treated as no link at all.
+  it.each([
+    ['a script', 'javascript:alert(document.domain)'],
+    ['a document carried in the address', 'data:text/html,<script>alert(1)</script>'],
+    ['another program', 'file:///etc/passwd'],
+    ['not an address', 'login.tailscale.com/a/abc'],
+  ])('shows no code or link when the login address is %s', async (_case, authURL) => {
+    const { container, getByRole } = await renderAgent(
+      card(makeStatus({ backendState: 'NeedsLogin', running: false, authPending: true })),
+      {
+        'POST /api/login/url': { authURL, backendState: 'NeedsLogin' },
+        'POST /api/login': { authURL, backendState: 'NeedsLogin' },
+      },
+    )
+    await settle()
+
+    expect(container.querySelector('.qr')).not.toBeInTheDocument()
+    expect(container.querySelector('a.auth-url')).not.toBeInTheDocument()
+
+    fireEvent.click(getByRole('button', { name: 'Sign in to tailnet' }))
+    await settle()
+
+    expect(container.querySelector('.qr')).not.toBeInTheDocument()
+    expect(container.querySelector('a.auth-url')).not.toBeInTheDocument()
+  })
 })
 
 describe('the identity it reports', () => {

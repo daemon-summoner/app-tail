@@ -3,6 +3,7 @@
 package ipsfeed
 
 import (
+	"bytes"
 	"net/netip"
 	"strings"
 
@@ -17,19 +18,19 @@ import (
 // with CRLF line endings, so the carriage return is stripped rather than becoming part of an
 // address that then fails to parse.
 //
-// Skipped counts the lines that produced no entry, whether they were comments, junk, or a
-// network Reserved refused. It is shown beside the entry count on the card, where the pair
+// Skipped counts the lines that produced no entry, whether they were junk, a network Reserved
+// refused, or one too wide for a feed to carry. It is shown beside the entry count on the card, where the pair
 // answers "is this feed pulling its weight here".
 func Parse(body []byte) (entries []string, skipped int) {
-	lines := strings.Split(string(body), "\n")
 	// maxEntryPrealloc is the most entry slots Parse guesses at before it has read a line.
 	// It is the documented cap on what a hostile body -- a flood of comments, or of lines
-	// too short to be a network -- can make this side allocate beyond the lines themselves:
-	// such a body is paid for once, as lines, and not again as entry slots never used.
+	// too short to be a network -- can make this side allocate beyond the body itself.
 	const maxEntryPrealloc = 1 << 12
-	entries = make([]string, 0, min(len(lines), maxEntryPrealloc))
-	for _, line := range lines {
-		text := strings.TrimSpace(strings.TrimSuffix(line, "\r"))
+	entries = make([]string, 0, min(bytes.Count(body, []byte("\n"))+1, maxEntryPrealloc))
+	// The body is walked a line at a time and never split: a split costs a string header per
+	// line, and a body of bare line endings would spend sixteen times the download cap on them.
+	for line := range bytes.Lines(body) {
+		text := string(bytes.TrimSpace(line))
 		// The comment marker is honoured mid-line as well: FireHOL writes the reason for an
 		// entry after it, and DShield writes the attack count.
 		if cut := strings.IndexAny(text, "#;"); cut >= 0 {
@@ -39,7 +40,7 @@ func Parse(body []byte) (entries []string, skipped int) {
 			continue
 		}
 		prefix, ok := parseLine(text)
-		if !ok || Reserved(prefix) {
+		if !ok || Reserved(prefix) || tooWide(prefix) {
 			skipped++
 			continue
 		}
@@ -78,6 +79,25 @@ func canonical(prefix netip.Prefix) (netip.Prefix, bool) {
 		prefix = netip.PrefixFrom(addr.Unmap(), prefix.Bits()-96)
 	}
 	return prefix.Masked(), true
+}
+
+// The widest network a feed may put in force, as the fewest bits its prefix may have.
+//
+// A feed names hosts and the networks they sit in. The widest allocation any registry hands
+// out is a /8 of IPv4 and a /16 of IPv6, so anything wider belongs to nobody a feed could be
+// describing: it is a typing mistake or a feed somebody else now writes, and in prevent mode
+// it refuses a slice of the internet.
+const (
+	minBitsV4 = 8
+	minBitsV6 = 16
+)
+
+// tooWide reports a network wider than any a feed may put in force.
+func tooWide(prefix netip.Prefix) bool {
+	if prefix.Addr().Is4() {
+		return prefix.Bits() < minBitsV4
+	}
+	return prefix.Bits() < minBitsV6
 }
 
 // reserved is every network a downloaded feed may not put in force.

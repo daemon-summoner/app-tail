@@ -188,7 +188,31 @@ func (s *Stream) Down([]byte) bool { return false }
 
 // Close releases the window. It is called however the connection ended, and doing it twice
 // is safe: a stream that reached its verdict has already let go.
-func (s *Stream) Close() { s.finish() }
+//
+// A window still held for the signatures is read here first, because a connection that ended
+// before filling it is otherwise one nothing reads -- and most connections are that short.
+// The match is reported as delivered and what the report answers is dropped: every byte in
+// the window has been written on and the connection is over, so there is nothing to stop.
+func (s *Stream) Close() {
+	if s == nil || s.done || s.held == 0 || !s.opts.scanning() {
+		s.finish()
+		return
+	}
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			s.finish()
+		}
+	}()
+
+	win := s.win[:s.held]
+	if !s.named {
+		// Only for what the match is reported as travelling over. The name is not reported:
+		// a rule on it could no longer refuse anything.
+		found, _ := s.parse(win, true)
+		s.named, s.protocol = true, found.Protocol
+	}
+	s.scan(win, true)
+}
 
 // attempt reads the window for as much of it as has been asked for. full says the window can
 // grow no further, which is what turns an unfinished parse into a verdict rather than a wait,
@@ -223,7 +247,7 @@ func (s *Stream) attempt(full bool) bool {
 	if !full {
 		return false
 	}
-	return s.scan(win)
+	return s.scan(win, false)
 }
 
 // parse reads the window as each thing it might be, in the order of what is actually on the
@@ -275,14 +299,16 @@ func (s *Stream) parse(win []byte, full bool) (Handshake, bool) {
 
 // scan reads the window against the signatures, which is the last thing a stream does however
 // it turns out. The window is released before the report is made, so the report costs nothing
-// in held memory however long it takes.
-func (s *Stream) scan(win []byte) bool {
+// in held memory however long it takes. delivered says the connection is already over, which
+// the match carries to whoever records it.
+func (s *Stream) scan(win []byte, delivered bool) bool {
 	found, matched := s.opts.Signatures.Match(win)
 	report, protocol := s.opts.Matched, s.protocol
 	s.finish()
 	if !matched {
 		return false
 	}
+	found.Delivered = delivered
 	return report(found, protocol)
 }
 

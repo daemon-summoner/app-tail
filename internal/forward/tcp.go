@@ -18,8 +18,12 @@ import (
 
 const (
 	// acceptRetryDelay throttles the accept loop after a transient accept error so
-	// a persistently failing listener cannot spin the CPU.
-	acceptRetryDelay = 50 * time.Millisecond
+	// a persistently failing listener cannot spin the CPU. It is the first wait: each
+	// failure in a row doubles it up to acceptRetryCeiling, because the usual cause is
+	// this machine being out of descriptors or memory, and asking twenty times a second
+	// is load on exactly the machine that has none to spare.
+	acceptRetryDelay   = 50 * time.Millisecond
+	acceptRetryCeiling = time.Second
 
 	// dialTimeout bounds how long one connection waits for its target. An
 	// ACL-blocked target would otherwise hang until the client gives up.
@@ -85,6 +89,7 @@ func (m *Manager) startTCP(ctx context.Context, e *entry, wg *sync.WaitGroup) (i
 // It takes the forward by value: the manager may rewrite the registry entry while
 // this loop runs, and a running listener must keep serving what it was started with.
 func (m *Manager) acceptTCP(ctx context.Context, e *entry, f config.Forward, ln net.Listener, wg *sync.WaitGroup, slots chan struct{}) {
+	delay := acceptRetryDelay
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
@@ -92,16 +97,26 @@ func (m *Manager) acceptTCP(ctx context.Context, e *entry, f config.Forward, ln 
 				return // deliberate stop
 			}
 			if isTemporary(err) {
-				m.logger.Debug("transient accept error", "id", f.ID, "error", err)
-				if !sleepCtx(ctx, acceptRetryDelay) {
+				if outOfRoom(err) {
+					// Connections are being turned away while this lasts, so it is a
+					// reason the forward shows rather than a line only the log has.
+					m.logger.Warn("forward could not accept a connection and is trying again",
+						"id", f.ID, "name", f.Name, "error", err, "wait", delay)
+					e.counters.noteError(fmt.Errorf("could not accept a connection, and is trying again: %w", err))
+				} else {
+					m.logger.Debug("transient accept error", "id", f.ID, "error", err)
+				}
+				if !sleepCtx(ctx, delay) {
 					return
 				}
+				delay = min(2*delay, acceptRetryCeiling)
 				continue
 			}
 			m.logger.Error("forward listener failed", "id", f.ID, "name", f.Name, "error", err)
 			e.counters.setError(fmt.Errorf("listener failed: %w", err))
 			return
 		}
+		delay = acceptRetryDelay
 
 		// Taken before the goroutine starts, so the ceiling is on connections held
 		// rather than on goroutines that have got as far as running.
@@ -206,9 +221,25 @@ func bindHost(f config.Forward) string {
 
 // isTemporary reports whether an accept error is worth retrying.
 func isTemporary(err error) bool {
+	// Asked first: an errno is a net.Error too, and one that is not a timeout would be
+	// answered below as a listener that is finished.
+	if outOfRoom(err) {
+		return true
+	}
 	var ne net.Error
 	if errors.As(err, &ne) {
 		return ne.Timeout()
+	}
+	return false
+}
+
+// outOfRoom reports that an accept failed for want of something the listener does not
+// own, which is a failure of that one accept and not of the listener.
+func outOfRoom(err error) bool {
+	for _, cause := range acceptOutOfRoom {
+		if errors.Is(err, cause) {
+			return true
+		}
 	}
 	return false
 }

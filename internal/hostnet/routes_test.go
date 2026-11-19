@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"tailscale.com/types/preftype"
 	"tailscale.com/wgengine/router"
 )
 
@@ -388,6 +389,23 @@ func TestTheEngineConfigurationThePrivilegedSideInstallsIsChecked(t *testing.T) 
 				SubnetRoutes: []netip.Prefix{netip.MustParsePrefix("192.168.9.0/24")},
 				NewMTU:       1280,
 			},
+		},
+		{
+			name: "the firewall settings the engine sends on every start",
+			cfg: &router.Config{
+				LocalAddrs:       []netip.Prefix{netip.MustParsePrefix("100.64.0.7/32")},
+				SNATSubnetRoutes: true,
+				NetfilterMode:    preftype.NetfilterOn,
+			},
+		},
+		{
+			name: "connection tracking for forwarded traffic, which the agent never asks for",
+			cfg: &router.Config{
+				SNATSubnetRoutes:  true,
+				NetfilterMode:     preftype.NetfilterOn,
+				StatefulFiltering: true,
+			},
+			says: "connection filtering",
 		},
 		{
 			name: "loopback, which is how every program here reaches itself",

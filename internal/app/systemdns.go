@@ -630,7 +630,7 @@ func (r *systemDNSRunner) serve(ctx context.Context, at netip.AddrPort, what str
 // hands the forwarder the rules it routes by on every pass.
 func (r *systemDNSRunner) configure(ctx context.Context, target systemDNSTarget, base tsnode.BaseResolvers) error {
 	rules := target.rules
-	rules.SearchDomains = slices.Clone(base.SearchDomains)
+	rules.SearchDomains = dnsfwd.UsableSearchDomains(base.SearchDomains)
 
 	fingerprint := resolverFingerprint(target.profile, target.bootstrap, base)
 	if fingerprint == r.resolvers {
@@ -1180,7 +1180,7 @@ func (a *Agent) systemDNSView(ctx context.Context) *httpapi.DNSSystemView {
 			}
 			// The network's own suffixes go to the network too, and a user reading the card
 			// has no other way to learn that theirs are not the only ones.
-			for _, domain := range snap.base.SearchDomains {
+			for _, domain := range dnsfwd.UsableSearchDomains(snap.base.SearchDomains) {
 				if !slices.Contains(view.LocalSuffixes, domain) {
 					view.LocalSuffixes = append(view.LocalSuffixes, domain)
 				}

@@ -14,6 +14,7 @@ import (
 	"net/netip"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sellitus/app-tail/internal/peeraccount"
@@ -39,6 +40,12 @@ const (
 	WriteTimeout  = 120 * time.Second
 	shutdownGrace = 5 * time.Second
 
+	// refusalLogBurst is how many refused requests are written to the log in one
+	// refusalLogWindow. Any local process can provoke a refusal as fast as it can
+	// connect, so without a bound it decides how large the log grows.
+	refusalLogBurst  = 5
+	refusalLogWindow = time.Minute
+
 	// contentSecurityPolicy locks the dashboard to assets served from this origin.
 	//
 	// style-src needs 'unsafe-inline': the dashboard sets inline style attributes
@@ -58,9 +65,37 @@ type Server struct {
 	// callerAccount checks that a connection is held by this account's own process.
 	callerAccount func(peer, server netip.AddrPort) error
 	ui            fs.FS
+	// now is the clock the refusal log is paced by.
+	now      func() time.Time
+	refusals refusalLog
 
 	http *http.Server
 	ln   net.Listener
+}
+
+// refusalLog paces the log line a refused request writes and counts the ones left out.
+type refusalLog struct {
+	mu       sync.Mutex
+	window   time.Time
+	logged   int
+	unlogged int
+}
+
+// admit reports whether a refusal at now is written, and how many before it were not.
+// The count is handed over once, with the first line of the window after they happened.
+func (l *refusalLog) admit(now time.Time) (write bool, unlogged int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if elapsed := now.Sub(l.window); elapsed >= refusalLogWindow || elapsed < 0 {
+		l.window, l.logged = now, 0
+	}
+	if l.logged >= refusalLogBurst {
+		l.unlogged++
+		return false, 0
+	}
+	l.logged++
+	unlogged, l.unlogged = l.unlogged, 0
+	return true, unlogged
 }
 
 // Options configures a Server. UI may be nil, in which case dashboard routes
@@ -93,7 +128,7 @@ func New(opts Options) *Server {
 	if callerAccount == nil {
 		callerAccount = peeraccount.Check
 	}
-	s := &Server{deps: opts.Deps, auth: opts.Auth, logger: logger, ui: opts.UI, callerAccount: callerAccount}
+	s := &Server{deps: opts.Deps, auth: opts.Auth, logger: logger, ui: opts.UI, callerAccount: callerAccount, now: time.Now}
 	s.http = &http.Server{
 		Handler:           s.routes(),
 		ReadHeaderTimeout: readHeaderTimeout,
@@ -319,8 +354,13 @@ func (s *Server) withGuards(next http.Handler) http.Handler {
 		// directory, or a session a browser got by trading a launch token the tray or the
 		// CLI minted from it.
 		if needsToken(r) && !s.authorized(r) {
-			s.logger.Warn("refused an api request without a valid token",
-				"method", r.Method, "path", r.URL.Path, "remote", r.RemoteAddr)
+			if write, unlogged := s.refusals.admit(s.now()); write {
+				attrs := []any{"method", r.Method, "path", r.URL.Path, "remote", r.RemoteAddr}
+				if unlogged > 0 {
+					attrs = append(attrs, "unlogged", unlogged)
+				}
+				s.logger.Warn("refused an api request without a valid token", attrs...)
+			}
 			w.Header().Set("WWW-Authenticate", `Bearer realm="app-tail"`)
 			s.writeJSON(w, http.StatusUnauthorized, errorBody{Error: signInMessage})
 			return
@@ -439,9 +479,9 @@ func sameOrigin(origin, host string) bool {
 	return strings.EqualFold(u.Host, host)
 }
 
-// isLoopbackHost reports whether a host is one the agent may bind. It is stricter
-// than isLoopbackName on purpose: a name under .localhost goes through the resolver,
-// and a listen address must never depend on what the resolver says.
+// isLoopbackHost reports whether a host is one the agent may bind: the one name every
+// system pins to loopback, or a loopback address. Nothing else is taken, because a listen
+// address must never depend on what the resolver says.
 func isLoopbackHost(host string) bool {
 	if host == "localhost" {
 		return true
@@ -454,13 +494,10 @@ func isLoopbackHost(host string) bool {
 func isLoopbackName(host string) bool {
 	// A Host may carry the FQDN's trailing dot.
 	name := strings.ToLower(strings.TrimSuffix(host, "."))
-	// RFC 6761 reserves "localhost" and everything beneath it for the loopback. The
-	// leading dot makes this a label comparison, so neither a name that merely ends
-	// in the string ("notlocalhost") nor one that buries it mid-name
-	// ("evil.localhost.attacker.example") passes.
-	if strings.HasSuffix(name, ".localhost") {
-		return true
-	}
+	// RFC 6761 reserves everything beneath "localhost" for the loopback too, but only as
+	// a SHOULD: a resolver that forwards such a name upstream lets whoever answers point
+	// it at this machine, which is the rebinding this guard exists to stop. So a name
+	// under .localhost is refused like any other the resolver decides.
 	return isLoopbackHost(name)
 }
 

@@ -27,6 +27,7 @@ import type { SettingsForm } from '../components/settings/useSettingsDraft'
 import { useTunnelDraft } from '../components/settings/useTunnelDraft'
 import { usePolled, useStore } from '../data/StoreProvider'
 import { href } from '../lib/router'
+import { webLink } from '../lib/webLink'
 import {
   api,
   ApiError,
@@ -415,6 +416,7 @@ function ConnectionOverview({
   retrying: boolean
   error: string | undefined
 }) {
+  const signInLink = webLink(tunnel.authUrl)
   return (
     <Panel
       title={tunnel.name}
@@ -426,10 +428,10 @@ function ConnectionOverview({
       }}
       actions={
         <>
-          {tunnel.authUrl ? (
+          {signInLink ? (
             // A login is finished at the control plane's own page, so the only thing this
             // can do is take the reader there.
-            <a className="btn primary small" href={tunnel.authUrl} target="_blank" rel="noreferrer">
+            <a className="btn primary small" href={signInLink} target="_blank" rel="noreferrer">
               Sign in
             </a>
           ) : null}

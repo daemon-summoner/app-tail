@@ -78,7 +78,9 @@ func (r *ipsRunner) carried(f inspect.Flow, found inspect.Finding, protocol stri
 		return false
 	}
 
-	refuse := r.prevent.Load()
+	// A match on a connection that has already ended stopped nothing, whatever the mode, and
+	// is recorded as what it is.
+	refuse := r.prevent.Load() && !found.Delivered
 	r.note(Detection{
 		At:       r.now(),
 		Signal:   string(found.Signal),

@@ -455,6 +455,34 @@ describe('one connection', () => {
     expect(view.getByText('workstation.example.ts.net')).toBeInTheDocument()
   })
 
+  it('offers the way to the page a waiting login is finished on', async () => {
+    const view = await at(['tailscale', 'tn_primary'], {
+      'GET /api/tunnels': {
+        tunnels: [makeTunnel({ authUrl: 'https://login.tailscale.com/a/abc' })],
+      },
+    })
+
+    expect(view.getByRole('link', { name: 'Sign in' })).toHaveAttribute(
+      'href',
+      'https://login.tailscale.com/a/abc',
+    )
+  })
+
+  // The address is the control server's to choose, and the button is followed with a
+  // click, so one that is not a web page is no sign-in button at all.
+  it.each([
+    ['a script', 'javascript:alert(document.domain)'],
+    ['a document carried in the address', 'data:text/html,<script>alert(1)</script>'],
+    ['not an address', 'login.tailscale.com/a/abc'],
+  ])('offers no sign-in button when the login address is %s', async (_case, authUrl) => {
+    const view = await at(['tailscale', 'tn_primary'], {
+      'GET /api/tunnels': { tunnels: [makeTunnel({ authUrl })] },
+    })
+
+    expect(view.container.querySelector('.panel-head .status')).toHaveTextContent('Connected')
+    expect(view.queryByRole('link', { name: 'Sign in' })).not.toBeInTheDocument()
+  })
+
   // Limits are what this kind of connection does not carry at all. Meeting one later as a
   // fault costs someone an afternoon looking for a break that was never there.
   it('states up front what this connection does not carry', async () => {

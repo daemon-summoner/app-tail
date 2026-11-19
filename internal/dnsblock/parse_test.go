@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -364,5 +365,34 @@ func TestANameWrittenInItsOwnAlphabetBlocksTheQueryTheWireCarries(t *testing.T) 
 	_, skipped = ParseHosts([]byte("0.0.0.0 ads\uFFFD.example\n"))
 	if skipped != 1 {
 		t.Errorf("a name no query could carry was skipped %d times, want 1", skipped)
+	}
+}
+
+// An exception wins over every list, so one for everything under "com" would switch all of
+// them off for most of the internet without anything looking wrong. A downloaded list does not
+// get to do that. Stopping a whole suffix is left alone: lists do it on purpose.
+func TestAnExceptionForAWholePublicSuffixIsCountedRatherThanApplied(t *testing.T) {
+	entries, skipped := ParseABP([]byte(strings.Join([]string{
+		"@@||net^",
+		"@@||co.uk^",
+		"@@||localhost^",
+		"@@||org^$important",
+		"@@||good.example.net^",
+		"||zip^",
+		"||co.uk^",
+		"||ads.example.com^",
+	}, "\n")))
+
+	want := []Entry{
+		{Name: "good.example.net", Match: Subtree, Allow: true},
+		{Name: "zip", Match: Subtree},
+		{Name: "co.uk", Match: Subtree},
+		{Name: "ads.example.com", Match: Subtree},
+	}
+	if !slices.Equal(entries, want) {
+		t.Errorf("entries = %+v, want %+v", entries, want)
+	}
+	if skipped != 4 {
+		t.Errorf("skipped = %d, want 4 (the exceptions for a whole suffix)", skipped)
 	}
 }

@@ -1041,6 +1041,9 @@ func (a *Agent) start(ctx context.Context) error {
 		Network:  a.tunnels,
 		Logger:   a.logger,
 		StateDir: a.stateDir(),
+		// A program handed a proxy must not arrive at app-tail's own listeners as a
+		// connection from this machine, which is what they trust.
+		DialGuard: a.ownListenerDial,
 	})
 	// Built whether or not the setting is on: with it off, the first reconcile is what
 	// puts back anything a previous run replaced and then never ran to restore.

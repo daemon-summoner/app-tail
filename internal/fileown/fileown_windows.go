@@ -7,6 +7,7 @@ package fileown
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -173,6 +174,34 @@ func OwnedByAdministrators(path string) (bool, string, error) {
 		}
 	}
 	return false, accountName(owner), nil
+}
+
+// trustedExistingDir refuses a directory MakeRestrictedDir found already made unless the
+// administrators made it.
+//
+// The directories it is asked about sit under ProgramData, where any account may create one
+// before an elevated app-tail first does. Whoever made it owns it, and could have left a link
+// in its place, or files and open handles inside it that narrowing the directory afterwards
+// does not take back -- and what an elevated app-tail writes there is what it later acts on.
+func trustedExistingDir(dir string) error {
+	info, err := os.Lstat(dir)
+	if err != nil {
+		return fmt.Errorf("inspect %s: %w", dir, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s is a link rather than a folder, so what app-tail wrote there with "+
+			"administrator rights would land wherever it points; remove it and try again", dir)
+	}
+	owned, owner, err := ownedByAdministrators(dir)
+	if err != nil {
+		return err
+	}
+	if !owned {
+		return fmt.Errorf("%s was already there and belongs to %s rather than to the administrators, so "+
+			"app-tail will not keep what it does with administrator rights in it; remove the folder "+
+			"and try again", dir, owner)
+	}
+	return nil
 }
 
 // ReplaceableByOtherAccounts reports whether the program at path could be swapped for

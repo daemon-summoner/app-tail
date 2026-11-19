@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"net/netip"
 	"testing"
 
@@ -425,5 +426,50 @@ func TestASinkholeAddressAndANegativeAnswerExpireTogether(t *testing.T) {
 	}
 	if header.TTL != localTTL {
 		t.Errorf("sinkhole TTL = %d, want %d", header.TTL, localTTL)
+	}
+}
+
+// A query asks one question. Nothing sends more, no resolver answers more, and a second one
+// is a question that was never routed or checked against anything riding along with one that
+// was.
+func TestAQueryAskingMoreThanOneQuestionIsRefusedAsMalformed(t *testing.T) {
+	b := dnsmessage.NewBuilder(nil, dnsmessage.Header{ID: 0x1234, RecursionDesired: true})
+	if err := b.StartQuestions(); err != nil {
+		t.Fatalf("StartQuestions: %v", err)
+	}
+	for _, name := range []string{"example.com.", "ads.example.com."} {
+		q := dnsmessage.Question{Name: dnsmessage.MustNewName(name), Type: dnsmessage.TypeA, Class: dnsmessage.ClassINET}
+		if err := b.Question(q); err != nil {
+			t.Fatalf("Question: %v", err)
+		}
+	}
+	two, err := b.Finish()
+	if err != nil {
+		t.Fatalf("Finish: %v", err)
+	}
+	profile := answering("profile", "203.0.113.5")
+	f := newTestForwarder(t, Config{
+		Rules:   Rules{HaveLocal: true},
+		Profile: NewPool([]Upstream{profile}, nil),
+	})
+
+	resp := f.Answer(context.Background(), two, false)
+
+	if code, ok := rcode(resp); !ok || code != dnsmessage.RCodeFormatError {
+		t.Errorf("rcode = %s, want FORMERR", code)
+	}
+	if id, _ := queryID(resp); id != 0x1234 {
+		t.Errorf("id = %#x, want the client's so the refusal reaches it", id)
+	}
+	if asked := profile.questions(); len(asked) != 0 {
+		t.Errorf("the profile was asked %v for a query that was refused", asked)
+	}
+	if _, err := parseQuestion(two); !errors.Is(err, errMalformed) {
+		t.Errorf("parseQuestion(two questions) = %v, want it malformed", err)
+	}
+
+	one := f.Answer(context.Background(), buildQuery(t, "example.com", dnsmessage.TypeA), false)
+	if code, _ := rcode(one); code != dnsmessage.RCodeSuccess {
+		t.Errorf("a query asking one question was answered %s", code)
 	}
 }

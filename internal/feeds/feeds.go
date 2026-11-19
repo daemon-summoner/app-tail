@@ -400,6 +400,36 @@ func PinnedClient(addrs []netip.Addr, port uint16, timeout time.Duration) *http.
 	}
 }
 
+// The IPv4 ranges that are neither private nor routed, and the IPv6 prefixes whose addresses
+// are IPv4 addresses in a wrapper.
+var (
+	thisNetwork  = netip.MustParsePrefix("0.0.0.0/8")
+	benchmarking = netip.MustParsePrefix("198.18.0.0/15")
+	reservedV4   = netip.MustParsePrefix("240.0.0.0/4")
+
+	nat64          = netip.MustParsePrefix("64:ff9b::/96")
+	sixToFour      = netip.MustParsePrefix("2002::/16")
+	v4CompatibleV6 = netip.MustParsePrefix("::/96")
+)
+
+// embeddedV4 is the IPv4 address an IPv6 address carries, when it is one of the forms that
+// carry one: the NAT64 prefix and the deprecated IPv4-compatible form hold it in the last four
+// bytes, and a 6to4 address holds it right behind the prefix. The unspecified address and
+// loopback sit inside the IPv4-compatible range and are neither.
+func embeddedV4(addr netip.Addr) (netip.Addr, bool) {
+	if !addr.Is6() || addr.IsUnspecified() || addr.IsLoopback() {
+		return netip.Addr{}, false
+	}
+	raw := addr.As16()
+	switch {
+	case nat64.Contains(addr), v4CompatibleV6.Contains(addr):
+		return netip.AddrFrom4([4]byte(raw[12:16])), true
+	case sixToFour.Contains(addr):
+		return netip.AddrFrom4([4]byte(raw[2:6])), true
+	}
+	return netip.Addr{}, false
+}
+
 // Fetchable refuses an address a file may not be downloaded from.
 //
 // The fetch is the one place this process opens a connection to somewhere a caller named, and
@@ -410,8 +440,17 @@ func PinnedClient(addrs []netip.Addr, port uint16, timeout time.Duration) *http.
 //
 // Every address the name resolved to is checked rather than only the first, because the dialer
 // tries each in turn: one refusable address among several is still an address that gets dialled.
+//
+// An IPv6 address that carries an IPv4 one is checked as the address it carries, because that
+// is the host a translating gateway, a 6to4 relay or this machine's own stack delivers to.
 func Fetchable(addr netip.Addr) error {
 	addr = addr.Unmap()
+	if inner, ok := embeddedV4(addr); ok {
+		if err := Fetchable(inner); err != nil {
+			return fmt.Errorf("it carries the address %s: %w", inner, err)
+		}
+		return nil
+	}
 	switch {
 	case !addr.IsValid():
 		return errors.New("it is not an address")
@@ -427,6 +466,13 @@ func Fetchable(addr netip.Addr) error {
 		return errors.New("it names no host")
 	case addr.IsPrivate():
 		return errors.New("it is on a private network rather than the internet")
+	case thisNetwork.Contains(addr):
+		// Wider than the one unspecified address: Linux delivers the whole range to itself.
+		return errors.New("it names no host on the internet, and on some systems it is this machine")
+	case benchmarking.Contains(addr):
+		return errors.New("it is in the range set aside for benchmark networks, which is never on the internet")
+	case reservedV4.Contains(addr):
+		return errors.New("it is in a reserved range nothing on the internet answers from")
 	}
 	// The tailnet ranges come from the library through tsnode rather than being written out
 	// here, so an upstream change cannot leave a stale constant deciding what this refuses.

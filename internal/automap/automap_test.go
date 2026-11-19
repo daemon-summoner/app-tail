@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sellitus/app-tail/internal/config"
 	"github.com/sellitus/app-tail/internal/tsnode"
@@ -482,6 +483,100 @@ func TestAMappingSwitchedOffKeepsItsRowAndItsPort(t *testing.T) {
 			if !f.Enabled {
 				t.Errorf("%s was switched off too; only the one named should be", f.ID)
 			}
+		}
+	}
+}
+
+// A plan is built on every reconcile, and the assignments it starts from only ever grow.
+// Looking for each new pair's port from the base again, past every number already held,
+// makes the work the product of the two, and a reconcile is what brings a newly seen
+// device's forwards up.
+func TestPlanningManyNewPairsDoesNotSearchPastEveryAssignedPortForEachOne(t *testing.T) {
+	const (
+		base     = 10000
+		assigned = 25000
+		arriving = 25000
+	)
+	// Another connection's assignments, which hold their ports whether or not this plan
+	// has anything to do with their devices.
+	setupBegan := time.Now()
+	existing := make(map[string]int, assigned)
+	for i := range assigned {
+		existing[allocationKey("tn_other", fmt.Sprintf("n%d", i), 22)] = base + i
+	}
+	peers := make([]tsnode.Peer, arriving)
+	for i := range peers {
+		peers[i] = peer(fmt.Sprintf("n%d", i), fmt.Sprintf("host%d", i))
+	}
+	setup := time.Since(setupBegan)
+	p := params(peers, []int{22}, existing)
+	p.Max = arriving
+	p.PortBase = base
+	p.Allocate = func(preferred int) (int, error) { return preferred, nil }
+
+	began := time.Now()
+	plan, err := Build(p)
+	took := time.Since(began)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	if len(plan.Forwards) != arriving {
+		t.Fatalf("planned %d forwards, want all %d", len(plan.Forwards), arriving)
+	}
+	for i, f := range plan.Forwards {
+		if want := base + assigned + i; f.ListenPort != want {
+			t.Fatalf("pair %d was given local port %d, want %d, the lowest nothing held", i, f.ListenPort, want)
+		}
+	}
+	// The bound is a multiple of the time this machine took to build the inputs, which is one
+	// pass over the same pairs, so a busy machine slows both and leaves the ratio alone. One
+	// pass over the numbers costs about as much as that setup; a search from the base per pair
+	// is tens of thousands of times more.
+	if limit := max(200*setup, time.Second); took > limit {
+		t.Errorf("planning %d new pairs beside %d assigned ports took %v, want under %v (200 times the %v it took to set them up)",
+			arriving, assigned, took, limit, setup)
+	}
+}
+
+// Where the search has got to is only a place to start. A number below it that the
+// allocator did not hand out when it was offered is still the lowest free one, and is
+// offered again.
+func TestAPortTheAllocatorPassedOverIsOfferedAgain(t *testing.T) {
+	base := config.DefaultAutoMapPortBase
+	existing := map[string]int{
+		allocationKey("tn_other", "nX", 22): base,
+		allocationKey("tn_other", "nY", 22): base + 2,
+	}
+	peers := []tsnode.Peer{peer("nA", "alpha"), peer("nB", "beta"), peer("nC", "gamma")}
+	p := params(peers, []int{22}, existing)
+
+	var offered []int
+	p.Allocate = func(preferred int) (int, error) {
+		offered = append(offered, preferred)
+		if len(offered) == 1 {
+			// What an allocator does with a number something else on this machine is bound to.
+			return base + 500, nil
+		}
+		return preferred, nil
+	}
+
+	plan, err := Build(p)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	want := []int{base + 1, base + 1, base + 3}
+	if fmt.Sprint(offered) != fmt.Sprint(want) {
+		t.Errorf("the allocator was offered %v, want %v: the lowest free number each time", offered, want)
+	}
+	got := portsByTarget(plan)
+	for target, port := range map[string]int{
+		"alpha.tail1a2b.ts.net:22": base + 500,
+		"beta.tail1a2b.ts.net:22":  base + 1,
+		"gamma.tail1a2b.ts.net:22": base + 3,
+	} {
+		if got[target] != port {
+			t.Errorf("%s is on local port %d, want %d", target, got[target], port)
 		}
 	}
 }

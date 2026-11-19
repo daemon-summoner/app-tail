@@ -186,6 +186,13 @@ translates. The parser counts what it dropped and every list's row shows
 assumed. AdGuard's *DNS* filter is written for resolvers and does not have this problem,
 which is why that is the AdGuard entry that ships.
 
+**A list cannot take your own domains away.** An allow rule on a single label or on a
+public suffix (`com`, `co.uk`) would unblock a whole zone, so it is skipped and counted
+with the other skipped lines. Block rules on a whole top-level domain are kept, since the
+lists block `.zip` and `.mov` on purpose. A refresh that shrinks a list to under a tenth of
+the copy already held, when that copy has at least 100 names, is refused and the old copy
+stays in force, so a truncated download or a hijacked URL cannot empty a list.
+
 Four controls sit on top of the lists:
 
 ```
@@ -277,7 +284,9 @@ normal and none of them came from the server you picked. The shipped Quad9, Clou
 and Google profiles are therefore `https://9.9.9.9/dns-query`,
 `https://1.1.1.1/dns-query` and
 `https://8.8.8.8/dns-query`: encrypted, verified against the resolver's certificate,
-and reaching the server you chose or failing loudly. A profile of your own may use
+and reaching the server you chose or failing loudly. app-tail also refuses a DoH answer
+that arrives by redirect, is not `application/dns-message`, exceeds the size cap, or
+answers a different question than the one it asked. A profile of your own may use
 plain addresses; when one is in force app-tail checks whether this network answers DNS
 addressed elsewhere, and says so on the card and in `app-tail dns` when it does.
 
@@ -294,6 +303,17 @@ addresses, the search domains this network published, and any suffix you list in
 answer is final**, including "no such name", which is how a filtering resolver
 filters. `systemDns.retryOnNxdomain` turns that off and is off by default, because
 turning it on is how a blocklist stops blocking.
+
+A search domain this network published is ignored when it is a public suffix such as
+`com`, `co.uk` or `io`. No network owns one, and honouring it would send every name under it
+to the network's resolver ahead of your blocklist, so a hostile network could use it to
+switch the lists off. A label nobody registers names under (`lan`, `home`, `corp`) and
+`home.arpa` stay.
+
+The blocklist also follows an answer's alias chain: a name whose CNAME points at a blocked
+name is refused the same way the blocked name is, which closes the cloaking trick of hiding
+a tracker behind an innocent-looking subdomain. An answer app-tail cannot read to the end
+comes back as `SERVFAIL` rather than being passed along unchecked.
 
 **What it changes, by path.** Only these, only while it is on:
 

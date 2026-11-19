@@ -23,6 +23,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -285,6 +286,60 @@ func TestARootThatCannotBeReadIsRefusedRatherThanReplaced(t *testing.T) {
 	}
 	if !fileExists(certPath) {
 		t.Error("the certificate was deleted by a pass that could not read the key")
+	}
+}
+
+// A key other accounts can read is what a backup restored without its mode leaves behind, and
+// whoever read it can sign for any name this machine trusts. It is refused as it stands, with
+// the command that puts it right, and not narrowed in passing: that would hide that it was open.
+func TestARootKeyOtherAccountsCanReadIsRefusedWithTheRepair(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("mode bits are inert on Windows, where the access list carries this")
+	}
+	api := newIPSAPI(t, intercepting)
+	first := api.a.currentIPS().authority.Load()
+	if first == nil {
+		t.Fatal("no root was generated")
+	}
+	_, keyPath := interceptPaths(api.a.stateDir())
+	if err := os.Chmod(keyPath, 0o644); err != nil {
+		t.Fatalf("loosen the key: %v", err)
+	}
+	api.a.currentIPS().stopIntercepting()
+
+	api.a.reconcileIPS()
+
+	runner := api.a.currentIPS()
+	if runner.authority.Load() != nil {
+		t.Error("a root is being used whose key other accounts can read")
+	}
+	if runner.scope.Load().On() {
+		t.Error("connections are being opened with a key other accounts can read")
+	}
+	_, err := api.a.interceptAuthority(runner, tlsmint.Constraints{})
+	if err == nil {
+		t.Fatal("the key was accepted")
+	}
+	for _, want := range []string{keyPath, "other accounts", "chmod 600"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal says %q, want it to mention %q", err, want)
+		}
+	}
+	info, statErr := os.Stat(keyPath)
+	if statErr != nil {
+		t.Fatalf("stat the key: %v", statErr)
+	}
+	if info.Mode().Perm() != 0o644 {
+		t.Errorf("the key is now mode %#o; a refusal must leave it as it was found", info.Mode().Perm())
+	}
+
+	if err := os.Chmod(keyPath, 0o600); err != nil {
+		t.Fatalf("run the repair: %v", err)
+	}
+	api.a.reconcileIPS()
+	reloaded := api.a.currentIPS().authority.Load()
+	if reloaded == nil || reloaded.Fingerprint() != first.Fingerprint() {
+		t.Error("the root was not read back once its key was private again")
 	}
 }
 

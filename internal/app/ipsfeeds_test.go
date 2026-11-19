@@ -9,6 +9,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -615,4 +616,116 @@ func TestSwitchingAFeedOnDownloadsItWithoutWaitingForTheTick(t *testing.T) {
 		t.Fatalf("the feed was not downloaded; the loop waited out its %s tick instead",
 			ipsFeedCheckInterval)
 	}
+}
+
+// feedOf is a feed body holding count distinct addresses.
+func feedOf(count int) []byte {
+	var b strings.Builder
+	for i := range count {
+		fmt.Fprintf(&b, "203.0.%d.%d\n", 113+i/250, 1+i%250)
+	}
+	return []byte(b.String())
+}
+
+// A feed that comes back a fraction of what it was has usually not been cleaned up: it has
+// been truncated on the way, or the address now serves something else that happens to hold an
+// address or two. Storing it would take most of what was matching out of force without a word.
+func TestAFeedThatComesBackAFractionOfWhatItWasIsRefusedAndTheOldCopyKept(t *testing.T) {
+	clock := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
+	body := feedOf(200)
+	r := testFeedRunner(t, func() time.Time { return clock },
+		func(context.Context, string, feeds.State) (feeds.Fetched, error) {
+			return feeds.Fetched{Body: body}, nil
+		})
+	want := []config.IPSFeed{testFeed()}
+	if err := r.refresh(context.Background(), want, time.Hour, false); err != nil {
+		t.Fatalf("first refresh: %v", err)
+	}
+	stored := r.stateOf("test")
+
+	body = feedOf(19)
+	clock = clock.Add(2 * time.Hour)
+	err := r.refresh(context.Background(), want, time.Hour, false)
+
+	if err == nil {
+		t.Fatal("a feed a tenth of its size was accepted without a word")
+	}
+	if !strings.Contains(err.Error(), "19") || !strings.Contains(err.Error(), "200") {
+		t.Errorf("error = %q, want both counts, which are what the reader has to judge it by", err)
+	}
+	st := r.stateOf("test")
+	if st.Error == "" {
+		t.Error("nothing was recorded against the feed, so the card would show it as up to date")
+	}
+	if st.Rules != 200 || !st.StoredAt.Equal(stored.StoredAt) {
+		t.Errorf("state = %d rules stored at %v, want the copy still in force: 200 from %v", st.Rules, st.StoredAt, stored.StoredAt)
+	}
+	sources, sourceErr := r.sources(want)
+	if sourceErr != nil {
+		t.Fatalf("sources: %v", sourceErr)
+	}
+	if len(sources) != 1 || len(sources[0].Deny) != 200 {
+		t.Error("the shrunken body replaced the copy that was matching")
+	}
+}
+
+// Feeds do shrink: entries age out, and a small list is all over the place from day to day.
+// Neither is refused, and a feed removed and added again starts from nothing to compare with.
+func TestAFeedThatShrinksWithinReasonIsStored(t *testing.T) {
+	tests := []struct {
+		name          string
+		first, second int
+	}{
+		{"exactly a tenth of a large feed", 200, 20},
+		{"a small feed that all but empties", 99, 1},
+		{"a feed that grows", 200, 400},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			clock := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
+			body := feedOf(tc.first)
+			r := testFeedRunner(t, func() time.Time { return clock },
+				func(context.Context, string, feeds.State) (feeds.Fetched, error) {
+					return feeds.Fetched{Body: body}, nil
+				})
+			want := []config.IPSFeed{testFeed()}
+			if err := r.refresh(context.Background(), want, time.Hour, false); err != nil {
+				t.Fatalf("first refresh: %v", err)
+			}
+
+			body = feedOf(tc.second)
+			clock = clock.Add(2 * time.Hour)
+			if err := r.refresh(context.Background(), want, time.Hour, false); err != nil {
+				t.Fatalf("second refresh: %v", err)
+			}
+
+			if st := r.stateOf("test"); st.Rules != tc.second || st.Error != "" {
+				t.Errorf("state = %d rules, error %q; want %d and none", st.Rules, st.Error, tc.second)
+			}
+		})
+	}
+
+	t.Run("a collapsed feed removed and added again", func(t *testing.T) {
+		clock := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
+		body := feedOf(200)
+		r := testFeedRunner(t, func() time.Time { return clock },
+			func(context.Context, string, feeds.State) (feeds.Fetched, error) {
+				return feeds.Fetched{Body: body}, nil
+			})
+		want := []config.IPSFeed{testFeed()}
+		if err := r.refresh(context.Background(), want, time.Hour, false); err != nil {
+			t.Fatalf("first refresh: %v", err)
+		}
+		if err := r.forget("test"); err != nil {
+			t.Fatalf("forget: %v", err)
+		}
+
+		body = feedOf(5)
+		if err := r.refresh(context.Background(), want, time.Hour, false); err != nil {
+			t.Fatalf("refresh after removing it: %v", err)
+		}
+		if st := r.stateOf("test"); st.Rules != 5 {
+			t.Errorf("rules = %d, want the 5 the feed now holds", st.Rules)
+		}
+	})
 }

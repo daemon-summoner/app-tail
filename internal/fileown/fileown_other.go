@@ -22,6 +22,10 @@ func RestrictTreeToAdministrators(string) error { return nil }
 // second account that could have left a file in one for a privileged process to act on.
 func OwnedByAdministrators(string) (bool, string, error) { return true, "", nil }
 
+// trustedExistingDir accepts a directory MakeRestrictedDir found already made, for the reason
+// OwnedByAdministrators gives.
+func trustedExistingDir(string) error { return nil }
+
 // ReplaceableByOtherAccounts reports whether a program that is about to be started with
 // administrator rights could be swapped for another one first. Nothing here ever starts
 // this binary with rights -- the privileged work is a separate helper, installed once by

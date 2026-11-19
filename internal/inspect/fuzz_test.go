@@ -85,8 +85,8 @@ func FuzzHTTPHead(f *testing.F) {
 	})
 }
 
-// The message parser, which is the one that could be made to walk in a circle if it ever
-// followed a compression pointer.
+// The message parser, which is the one that could be made to walk in a circle by a
+// compression pointer aimed back at itself.
 func FuzzDNSMessage(f *testing.F) {
 	seedCorpus(f)
 	f.Fuzz(func(t *testing.T, msg []byte) {

@@ -58,7 +58,11 @@ func (m *Manager) SetEnabled(enabled bool) error {
 		return removeFile(m.Path())
 	}
 
-	if err := writeFile(m.Path(), m.systemdUnit()); err != nil {
+	unit, err := m.systemdUnit()
+	if err != nil {
+		return err
+	}
+	if err := writeFile(m.Path(), unit); err != nil {
 		return err
 	}
 

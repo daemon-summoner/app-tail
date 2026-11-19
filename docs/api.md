@@ -83,9 +83,9 @@ token that has leaked.
 
 | Method | Path | Does |
 |---|---|---|
-| GET | `/api/status` | tailnet state, node name, addresses, pending login URL |
+| GET | `/api/status` | tailnet state, node name, addresses, and whether a login is waiting (`authPending`) |
 | POST | `/api/login` | start an interactive login |
-| POST | `/api/login/url` | the pending login URL. A POST because the same-origin guard applies to state-changing methods only, so a page you did not open cannot read it |
+| POST | `/api/login/url` | the pending login URL. It answers only a caller holding the token, as every `/api` route but the two sign-in ones does, and that is what keeps it from a page you did not open; `GET /api/tunnels` carries the same URL as `authUrl` on a connection that is waiting for a login |
 | POST | `/api/logout` | disconnect this device |
 | POST | `/api/restart` | rebuild the tailnet node in place |
 | POST | `/api/restart-app` | restart the whole process. Answers 202 before anything begins, because the listener serving the request goes away with it |

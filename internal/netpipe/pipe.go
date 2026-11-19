@@ -11,6 +11,8 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
+	"time"
 )
 
 // Copy proxies bytes between client and upstream until either side finishes or ctx
@@ -61,6 +63,26 @@ var errInspected = errors.New("stopped by traffic inspection")
 // finished request, and a client reading one where it expected an answer reports a broken
 // server rather than a filter.
 func CopyWith(ctx context.Context, client, upstream net.Conn, onUp, onDown func(int64), watch Stream) error {
+	return copyBoth(ctx, client, upstream, onUp, onDown, watch, 0)
+}
+
+// ErrIdle is what CopyIdle fails with when it ended a connection for carrying nothing.
+var ErrIdle = errors.New("nothing crossed the connection in either direction for its idle limit")
+
+// CopyIdle is CopyWith that also ends a connection once nothing has crossed it in either
+// direction for idle, and reports ErrIdle when that is what ended it.
+//
+// One clock serves both directions, because that is what idle means for a connection: a
+// download with nothing to say on the way up for an hour is in use for the whole hour, and
+// a deadline kept per direction would cut it. A caller holding a budget of connections needs
+// this to get back the ones whose two ends both went away without saying so, which no read
+// ever reports. An idle that is not positive is no limit, which is CopyWith.
+func CopyIdle(ctx context.Context, client, upstream net.Conn, onUp, onDown func(int64), watch Stream, idle time.Duration) error {
+	return copyBoth(ctx, client, upstream, onUp, onDown, watch, idle)
+}
+
+// copyBoth is the one loop behind every entry point above.
+func copyBoth(ctx context.Context, client, upstream net.Conn, onUp, onDown func(int64), watch Stream, idle time.Duration) error {
 	defer client.Close()
 	defer upstream.Close()
 	if watch != nil {
@@ -74,10 +96,19 @@ func CopyWith(ctx context.Context, client, upstream net.Conn, onUp, onDown func(
 	})
 	defer stopWatch()
 
+	var quiet *IdleCut
+	if idle > 0 {
+		quiet = CutWhenIdle(idle, func() {
+			client.Close()
+			upstream.Close()
+		})
+		defer quiet.Stop()
+	}
+
 	// Buffered for both sends, so neither copy goroutine can outlive this call.
 	failures := make(chan error, 2)
 	go func() {
-		err := copyReporting(upstream, client, onUp, upSide(watch))
+		err := copyReporting(upstream, client, onUp, upSide(watch), quiet)
 		if errors.Is(err, errInspected) {
 			// No half-close on this path: the connection is being stopped, and the graceful
 			// shutdown would tell the far end the request simply ended.
@@ -91,7 +122,7 @@ func CopyWith(ctx context.Context, client, upstream net.Conn, onUp, onDown func(
 		failures <- err
 	}()
 	go func() {
-		err := copyReporting(client, upstream, onDown, downSide(watch))
+		err := copyReporting(client, upstream, onDown, downSide(watch), quiet)
 		if errors.Is(err, errInspected) {
 			Reset(client)
 			Reset(upstream)
@@ -105,8 +136,76 @@ func CopyWith(ctx context.Context, client, upstream net.Conn, onUp, onDown func(
 	if errors.Is(joined, errInspected) {
 		return nil
 	}
+	if quiet.Fired() {
+		// The copies failed on the connections this closed under them, which is the cut
+		// itself rather than two transport faults.
+		return ErrIdle
+	}
 	return joined
 }
+
+// IdleCut ends a connection once nothing has crossed it for its limit. Whatever carries the
+// bytes stamps it as they cross, and a timer reads the stamp: one atomic store per chunk,
+// where a deadline moved on both sockets per chunk would be two timer reschedules.
+//
+// It is exported for the caller that hands its connection to a copy loop it does not own,
+// and so can only stamp from the connection's own Read and Write.
+type IdleCut struct {
+	limit time.Duration
+	began time.Time
+	// last is when bytes last crossed in either direction, as time since began.
+	last atomic.Int64
+	cut  func()
+	done atomic.Bool
+
+	mu      sync.Mutex
+	timer   *time.Timer
+	stopped bool
+}
+
+// CutWhenIdle starts the clock: cut runs once, on its own goroutine, when limit has passed
+// with no Touch. Stop must be called when the connection ends some other way.
+func CutWhenIdle(limit time.Duration, cut func()) *IdleCut {
+	c := &IdleCut{limit: limit, began: time.Now(), cut: cut}
+	c.mu.Lock()
+	c.timer = time.AfterFunc(limit, c.check)
+	c.mu.Unlock()
+	return c
+}
+
+// Touch records that bytes crossed just now.
+func (c *IdleCut) Touch() { c.last.Store(int64(time.Since(c.began))) }
+
+// check runs when the limit has passed since the stamp it last read, and either cuts or
+// waits out what is left of the limit since the newer stamp it finds.
+func (c *IdleCut) check() {
+	c.mu.Lock()
+	if c.stopped {
+		c.mu.Unlock()
+		return
+	}
+	quiet := time.Since(c.began) - time.Duration(c.last.Load())
+	if quiet < c.limit {
+		c.timer.Reset(c.limit - quiet)
+		c.mu.Unlock()
+		return
+	}
+	c.stopped = true
+	c.mu.Unlock()
+	c.done.Store(true)
+	c.cut()
+}
+
+// Stop ends the clock without cutting. It is safe after the cut and more than once.
+func (c *IdleCut) Stop() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.stopped = true
+	c.timer.Stop()
+}
+
+// Fired reports that this is what ended the connection. No limit never did.
+func (c *IdleCut) Fired() bool { return c != nil && c.done.Load() }
 
 // upSide and downSide bind one direction of a watch, or nil when there is none. A nil
 // function is what the copy loop compares against, so the inspected and uninspected loops
@@ -154,13 +253,16 @@ func chunkBuffer() *[]byte {
 // counting bytes off that total learns nothing until the connection closes -- which is
 // how a long transfer reads as idle for its whole duration and then arrives as a single
 // spike that flattens the scale of every real reading around it.
-func copyReporting(dst io.Writer, src io.Reader, report func(int64), watch func([]byte) bool) error {
+func copyReporting(dst io.Writer, src io.Reader, report func(int64), watch func([]byte) bool, quiet *IdleCut) error {
 	held := chunkBuffer()
 	defer chunks.Put(held)
 	buf := *held
 	for {
 		nr, rerr := src.Read(buf)
 		if nr > 0 {
+			if quiet != nil {
+				quiet.Touch()
+			}
 			// Offered before the write, so a chunk the inspector stops is a chunk the far
 			// end never receives.
 			if watch != nil && watch(buf[:nr]) {

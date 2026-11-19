@@ -158,7 +158,7 @@ func (r *Relay) handler(dialer proxy.ContextDialer, transport http.RoundTripper)
 			// reader would be a second window over the same connection and a second copy of
 			// every finding, and a second interception would be one this end could not
 			// present a certificate for anyway.
-			tunnelCONNECT(w, req, dialer.DialContext, r.tunnels, r.logger, nil, nil)
+			tunnelCONNECT(w, req, dialer.DialContext, r.tunnels, r.logger, nil, nil, tunnelIdle)
 			return
 		}
 		forwardRequest(w, req, transport, r.logger)

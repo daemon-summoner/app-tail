@@ -28,6 +28,10 @@ type Inspector interface {
 	// Watch answers nil for a flow it has nothing to read, which is the switch being off
 	// and every state before the first compile.
 	Watch(f inspect.Flow) netpipe.Stream
+	// WatchDatagrams is Watch for one client of a datagram forward, which has no opening
+	// bytes: every datagram the client sends is offered, and one that is stopped ends that
+	// client's flow.
+	WatchDatagrams(f inspect.Flow) netpipe.Stream
 	// Open decides whether an encrypted connection is opened so that Watch has something
 	// to read, and answers the pair of connections to carry it between either way. For
 	// almost every flow that is the pair it was handed, untouched.
@@ -56,6 +60,18 @@ func (m *Manager) watches(f config.Forward) netpipe.Stream {
 		return nil
 	}
 	return (*held).Watch(forwardFlow(f))
+}
+
+// watchesDatagrams asks for a reader of what one client of a datagram forward sends, and
+// answers none when there is no inspector.
+func (m *Manager) watchesDatagrams(f config.Forward) netpipe.Stream {
+	held := m.inspector.Load()
+	if held == nil {
+		return nil
+	}
+	flow := forwardFlow(f)
+	flow.Protocol = "udp"
+	return (*held).WatchDatagrams(flow)
 }
 
 // opens asks whether one forward's connection is opened, and answers the pair to carry it

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import { api, ApiError, type Status } from '../api'
+import { webLink } from '../lib/webLink'
 import { Panel } from './Panel'
 import { Notice } from './primitives'
 
@@ -53,7 +54,7 @@ export function ConnectionCard({
     const asking = { current: true }
     void api.loginUrl().then(
       (pending) => {
-        if (asking.current) setAuthUrl(pending.authURL)
+        if (asking.current) setAuthUrl(webLink(pending.authURL))
       },
       (cause) => {
         if (asking.current) setError(cause instanceof ApiError ? cause.message : String(cause))
@@ -85,7 +86,7 @@ export function ConnectionCard({
   // scan: it comes from this reply rather than from the next poll.
   const signIn = async () => {
     const started = await run(api.login)
-    if (started) setAuthUrl(started.authURL)
+    if (started) setAuthUrl(webLink(started.authURL))
   }
 
   // Signing out ends the login the code on screen belongs to, so the code goes with it: the

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 
 	"github.com/sellitus/app-tail/internal/access"
 	"github.com/sellitus/app-tail/internal/inspect"
@@ -19,24 +20,54 @@ import (
 	"github.com/sellitus/app-tail/internal/tunnel"
 )
 
-// Refusals a proxy answers with. They are distinguished because they mean opposite things
-// to whoever is debugging: one says nothing could work out where the destination is, the
-// other says it worked that out and this instance is deliberately not allowed to go there.
+// Refusals a proxy answers with. They are distinguished because they mean different things
+// to whoever is debugging: one says nothing could work out where the destination is, one
+// says it worked that out and this instance is deliberately not allowed to go there, and
+// one says nothing about the destination at all.
 var (
 	// ErrUnreachable means no connection could say where the destination is -- typically
 	// because the connection carrying it is not up yet.
 	ErrUnreachable = errors.New("no connection could work out where that is")
 	// ErrRefused means the destination is real and this instance's rules do not carry it.
 	ErrRefused = errors.New("this proxy is not allowed to reach that")
+	// ErrBusy means the destination was never looked at: the proxy is holding as much as it
+	// may at once, and the same request can succeed once something it carries has ended.
+	ErrBusy = errors.New("this proxy is at its limit")
 )
 
 // dialThisMachine opens connections that leave through this machine's own network, which is
 // what a route to ThisMachine is. The dialer carries no timeout of its own: every dial here
 // already runs under the instance's configured deadline.
-func dialThisMachine(ctx context.Context, network, address string) (net.Conn, error) {
-	var d net.Dialer
-	return d.DialContext(ctx, network, address)
+//
+// The guard sits in Control, which runs on the address actually being connected to, so
+// nothing between a check and the connection can point it somewhere else.
+func dialThisMachine(guard DialGuard) func(ctx context.Context, network, address string) (net.Conn, error) {
+	return func(ctx context.Context, network, address string) (net.Conn, error) {
+		var d net.Dialer
+		if guard != nil {
+			d.Control = func(network, address string, _ syscall.RawConn) error {
+				addr, err := netip.ParseAddrPort(address)
+				if err != nil {
+					return fmt.Errorf("read the address being connected to, %q: %w", address, err)
+				}
+				if err := guard(network, addr); err != nil {
+					return fmt.Errorf("%w: %w", ErrRefused, err)
+				}
+				return nil
+			}
+		}
+		return d.DialContext(ctx, network, address)
+	}
 }
+
+// DialGuard judges an address a proxy is about to connect to on this machine's own network
+// stack; network is the dialer's, such as "tcp4". An error refuses that connection.
+//
+// A route no connection carries can name this machine as easily as anywhere else, and the
+// listeners this app holds open there trust a connection from this machine more than one
+// from outside it. A program handed a proxy has been handed what the rules name, which was
+// never meant to include arriving at those listeners as though it were the user.
+type DialGuard func(network string, addr netip.AddrPort) error
 
 // Inspector examines a destination before it is dialled. It is declared here rather than
 // imported so this package keeps knowing nothing about where a rule came from or how it is
@@ -116,6 +147,12 @@ func (p *Instance) dial(ctx context.Context, network, address string) (net.Conn,
 	dialCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cfg.DialTimeout)
 	defer cancel()
 
+	if reason, refused := refusedByName(cfg.Rules, network, address); refused {
+		p.stats.refuse()
+		p.dests.entry(address).refused.Add(1)
+		return nil, fmt.Errorf("%w: %s -- %s", ErrRefused, address, reason)
+	}
+
 	route, err := p.set.resolve(dialCtx, network, address, cfg)
 	if err != nil {
 		p.stats.refuse()
@@ -149,12 +186,52 @@ func (p *Instance) dial(ctx context.Context, network, address string) (net.Conn,
 	}
 
 	conn, err := p.dialRoute(dialCtx, network, route)
+	if errors.Is(err, ErrRefused) {
+		// The dial guard's answer. It is a decision about the destination rather than a
+		// connection that failed, and is counted and answered as one.
+		p.stats.refuse()
+		p.dests.entry(address).refused.Add(1)
+		return nil, fmt.Errorf("%s resolves to %s -- %w", address, route.Addr, err)
+	}
 	if err != nil {
 		p.stats.fail()
 		p.dests.entry(address).failed.Add(1)
 		return nil, fmt.Errorf("dialing %s (%s): %w", address, route.Addr, err)
 	}
 	return p.track(conn, address, route.TunnelID, string(protocolOf(network))), nil
+}
+
+// refusedByName reports that the rules refuse a named destination wherever it resolves
+// to, and why, so the name is never put to a resolver. Asking first would tell the
+// networks' resolvers about every name a program hands the proxy, and spend a round trip
+// and a remembered answer on each, for destinations that were going to be refused anyway.
+//
+// It answers only what the full decision is certain to: the rules are walked in their own
+// order, and the first one whose name and transport fit decides if it is an allow, or a
+// deny with no condition left that depends on the address. An allow that might fit means
+// the name is worth resolving. A destination given as an address has nothing to resolve
+// and is left to the full decision.
+func refusedByName(rules []access.Rule, network, address string) (string, bool) {
+	name := nameAsked(address)
+	if name == "" {
+		return "", false
+	}
+	protocol := protocolOf(network)
+	for i, r := range rules {
+		if r.Protocol != access.AnyProtocol && r.Protocol != protocol {
+			continue
+		}
+		if r.Host != "" && !access.MatchHost(r.Host, name) {
+			continue
+		}
+		if r.Action == access.Allow {
+			return "", false
+		}
+		if r.Tunnel == "" && !r.CIDR.IsValid() && len(r.Ports) == 0 {
+			return fmt.Sprintf("rule %d %s", i+1, r.Describe()), true
+		}
+	}
+	return "no rule covers this, and this proxy carries only what a rule allows", true
 }
 
 // Verdict is what an instance would do with one destination, worked out without opening
@@ -456,6 +533,70 @@ func (c *countedConn) Close() error {
 		c.dest.active.Add(-1)
 		c.dests.touch(c.dest)
 		c.set.remove(c)
+	}
+	return c.Conn.Close()
+}
+
+// dialHeld is dial for the SOCKS5 half, which copies a connection's bytes itself and so
+// leaves nowhere else to apply the two limits a CONNECT tunnel is carried under. The
+// connection it answers holds one of the instance's tunnel places until it is closed, and
+// closes itself once nothing has crossed it for the idle limit.
+func (p *Instance) dialHeld(ctx context.Context, network, address string) (net.Conn, error) {
+	select {
+	case p.tunnelSlots <- struct{}{}:
+	default:
+		p.stats.refuse()
+		p.logger().Warn("the proxy refused a connection at its limit", "destination", address, "limit", cap(p.tunnelSlots))
+		return nil, fmt.Errorf("%w: already carrying %d tunnels, which is all this proxy holds at once",
+			ErrBusy, cap(p.tunnelSlots))
+	}
+	conn, err := p.dial(ctx, network, address)
+	if err != nil {
+		<-p.tunnelSlots
+		return nil, err
+	}
+	held := &heldConn{Conn: conn, release: func() { <-p.tunnelSlots }}
+	if p.tunnelIdle > 0 {
+		// Closing the upstream end is enough: the server's copies both fail on it, and it
+		// closes the client's end and this one as it returns, which gives the place back.
+		held.quiet = netpipe.CutWhenIdle(p.tunnelIdle, func() { conn.Close() })
+	}
+	return held, nil
+}
+
+// heldConn is an upstream connection that occupies a tunnel place. Every byte the proxy
+// carries in either direction is a Read or a Write on it, so stamping those is the one
+// clock for both directions.
+type heldConn struct {
+	net.Conn
+	quiet   *netpipe.IdleCut
+	release func()
+	// done gives the place back exactly once, for the reason countedConn counts once.
+	done atomic.Bool
+}
+
+func (c *heldConn) Read(b []byte) (int, error) {
+	n, err := c.Conn.Read(b)
+	if n > 0 && c.quiet != nil {
+		c.quiet.Touch()
+	}
+	return n, err
+}
+
+func (c *heldConn) Write(b []byte) (int, error) {
+	n, err := c.Conn.Write(b)
+	if n > 0 && c.quiet != nil {
+		c.quiet.Touch()
+	}
+	return n, err
+}
+
+func (c *heldConn) Close() error {
+	if c.done.CompareAndSwap(false, true) {
+		if c.quiet != nil {
+			c.quiet.Stop()
+		}
+		c.release()
 	}
 	return c.Conn.Close()
 }

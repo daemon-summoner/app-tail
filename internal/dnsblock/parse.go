@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"net/netip"
 	"strings"
+
+	"golang.org/x/net/publicsuffix"
 )
 
 // Format names how a list's lines are written.
@@ -223,13 +225,25 @@ func ParseABP(body []byte) ([]Entry, int) {
 		}
 		rule = strings.TrimSuffix(strings.TrimPrefix(rule, "||"), "^")
 		name := Normalize(rule)
-		if name == "" || !validName(name) {
+		if name == "" || !validName(name) || (allow && tooBroad(name)) {
 			skipped++
 			continue
 		}
 		entries = append(entries, Entry{Name: name, Match: Subtree, Allow: allow})
 	}
 	return entries, skipped
+}
+
+// tooBroad reports a name whose subtree no downloaded list may make an exception of: a single
+// label, or a suffix the registries hand names out under -- "com", "co.uk". An exception wins
+// over every list, so one for "com" would quietly switch all of them off for everything under
+// it. Stopping such a subtree is left alone: lists do that on purpose, and it is loud.
+func tooBroad(name string) bool {
+	if !strings.Contains(name, ".") {
+		return true
+	}
+	suffix, icann := publicsuffix.PublicSuffix(name)
+	return icann && suffix == name
 }
 
 // hidesElements reports a cosmetic rule. Those carry a CSS selector rather than a name

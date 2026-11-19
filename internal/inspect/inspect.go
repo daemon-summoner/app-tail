@@ -82,6 +82,10 @@ type Finding struct {
 	Value string `json:"value"`
 	// Source is the source as the user sees it, and is what the reason says.
 	Source string `json:"source"`
+	// Delivered reports a match found once the connection had ended, on bytes that had all
+	// been written on. Nothing was stopped and nothing can be, so whatever records the match
+	// must not call it a refusal.
+	Delivered bool `json:"delivered,omitempty"`
 }
 
 // Reason is the sentence the event and the log line carry.

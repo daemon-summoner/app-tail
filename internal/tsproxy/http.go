@@ -7,11 +7,13 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/sellitus/app-tail/internal/inspect"
 	"github.com/sellitus/app-tail/internal/netpipe"
@@ -99,7 +101,22 @@ func (p *Instance) serveConnect(w http.ResponseWriter, r *http.Request) {
 	open := func(ctx context.Context, client, upstream net.Conn) (net.Conn, net.Conn, error) {
 		return p.set.opens(ctx, flow, client, upstream)
 	}
-	tunnelCONNECT(w, r, p.dial, p.tunnelContext(), p.logger(), watch, open)
+	// Taken before the dial, so the ceiling is on destinations reached for rather than on
+	// tunnels that got as far as being established.
+	select {
+	case p.tunnelSlots <- struct{}{}:
+		defer func() { <-p.tunnelSlots }()
+	default:
+		if watch != nil {
+			watch.Close()
+		}
+		p.stats.refuse()
+		p.logger().Warn("the proxy refused a tunnel at its limit", "destination", r.Host, "limit", cap(p.tunnelSlots))
+		writeRefusal(w, fmt.Errorf("%w: already carrying %d tunnels, which is all this proxy holds at once",
+			ErrBusy, cap(p.tunnelSlots)))
+		return
+	}
+	tunnelCONNECT(w, r, p.dial, p.tunnelContext(), p.logger(), watch, open, p.tunnelIdle)
 }
 
 // tunnelCONNECT carries a CONNECT request through dial and then owns the connection.
@@ -112,6 +129,8 @@ func (p *Instance) serveConnect(w http.ResponseWriter, r *http.Request) {
 // decides whether the tunnel is opened first so that watch has something to read, and answers
 // the pair to carry it between; nil opens nothing, which is what a relay carrying one command
 // through the agent's own proxy wants.
+//
+// idle is how long the tunnel is kept with nothing crossing it in either direction.
 func tunnelCONNECT(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -120,6 +139,7 @@ func tunnelCONNECT(
 	logger *slog.Logger,
 	watch netpipe.Stream,
 	open func(ctx context.Context, client, upstream net.Conn) (net.Conn, net.Conn, error),
+	idle time.Duration,
 ) {
 	upstream, err := dial(r.Context(), "tcp", r.Host)
 	if err != nil {
@@ -187,7 +207,7 @@ func tunnelCONNECT(
 	}
 	client, upstream = opened, openedUpstream
 
-	if err := netpipe.CopyWith(tunnels, client, upstream, nil, nil, watch); err != nil {
+	if err := netpipe.CopyIdle(tunnels, client, upstream, nil, nil, watch, idle); err != nil {
 		logger.Debug("a proxy tunnel ended with an error", "destination", r.Host, "error", err)
 	}
 }
@@ -250,7 +270,7 @@ func stripHopByHop(h http.Header, connection string) {
 func writeRefusal(w http.ResponseWriter, err error) {
 	status := http.StatusBadGateway
 	switch {
-	case errors.Is(err, ErrUnreachable):
+	case errors.Is(err, ErrUnreachable), errors.Is(err, ErrBusy):
 		status = http.StatusServiceUnavailable
 	case errors.Is(err, ErrRefused):
 		status = http.StatusForbidden

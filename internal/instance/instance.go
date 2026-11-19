@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sellitus/app-tail/internal/apiauth"
 	"github.com/sellitus/app-tail/internal/config"
 	"github.com/sellitus/app-tail/internal/fileown"
 )
@@ -308,21 +309,39 @@ func readHolder(file *os.File) int {
 // It is the one way across a boundary a signal cannot cross: Windows has no signal that
 // means "shut down cleanly", and an agent another account started -- one running as root,
 // typically -- refuses a signal from this one.
+//
+// The agent answers that API only to a caller presenting the token it stored beside its
+// config, so an agent whose token this account cannot read cannot be asked this way either.
 func askAgentToQuit(ctx context.Context, configPath string) error {
 	addr := config.ReadDashboardAddr(configPath)
 	if addr == "" {
 		return fmt.Errorf("the agent holding %s recorded no dashboard address to ask", configPath)
 	}
+	token, err := apiauth.Read(filepath.Dir(configPath))
+	if err != nil {
+		return fmt.Errorf("read the API token to ask the running agent at %s to stop: %w", addr, err)
+	}
 	ctx, cancel := context.WithTimeout(ctx, quitRequestTimeout)
 	defer cancel()
+
+	client := &http.Client{Timeout: quitRequestTimeout}
+	// Before the token is sent: the address record outlives a crashed agent, and whatever
+	// binds the port next would otherwise receive it.
+	switch err := apiauth.ProveListener(ctx, client, "http://"+addr, token); {
+	case errors.Is(err, apiauth.ErrNotProven):
+		return fmt.Errorf("something other than the running app-tail agent is listening on %s; "+
+			"refusing to send it the API token", addr)
+	case err != nil:
+		return fmt.Errorf("ask the running agent at %s to stop: %w", addr, err)
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+addr+"/api/quit", nil)
 	if err != nil {
 		return fmt.Errorf("ask the running agent to stop: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
 
-	client := &http.Client{Timeout: quitRequestTimeout}
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("ask the running agent at %s to stop: %w", addr, err)

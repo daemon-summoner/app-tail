@@ -13,48 +13,28 @@ cd "$REPO_ROOT"
 
 INSTALL_DIR="${APPTAIL_INSTALL_DIR:-$HOME/.local/bin}"
 
-# authorize_root asks for the password once, before anything is built, so the privileged
-# step at the end never stops a finished build to ask for it -- and so the ask arrives while
-# someone is still watching the terminal rather than several minutes after they walked away.
+# authorize_root asks for the password at the one step that needs it, and reports whether
+# root commands can run from here. Nothing is asked before the build or kept alive across it:
+# an authorization held for those minutes is one every other program this account runs could
+# have used in the meantime.
 #
-# macOS only: it is the one platform with a privileged helper to install. Declining is a
-# loud skip rather than a failure, and leaves the build itself untouched.
+# Declining is a loud skip rather than a failure, and leaves the build itself untouched.
 authorize_root() {
-	[ "$(uname -s)" = "Darwin" ] || return 0
 	if ! have sudo; then
 		na "no sudo on this machine; the privileged helper cannot be installed from here"
-		return 0
+		return 1
 	fi
 	# Non-interactive callers -- CI, and the verification gates that run this script blind
 	# -- must not meet a password prompt that would hang forever.
 	if [ ! -t 0 ]; then
 		na "not a terminal; skipping the password prompt"
-		return 0
+		return 1
 	fi
-	step "Administrator rights"
-	info "macOS asks for your password once here, because the privileged helper runs as root."
+	info "macOS asks for your password here, because the privileged helper runs as root."
 	if ! sudo -v; then
 		na "administrator rights were declined; the privileged helper will not be installed"
-		return 0
+		return 1
 	fi
-	SUDO_AUTHORIZED=yes
-
-	# A cold build outruns sudo's grace period, so the authorization is renewed until this
-	# script exits rather than expiring part way through and prompting a second time.
-	while true; do
-		sudo -n true 2>/dev/null || exit
-		sleep 30
-	done &
-	SUDO_KEEPALIVE_PID=$!
-	trap release_root EXIT
-}
-
-# release_root stops renewing the authorization. The grace period then lapses on its own,
-# so nothing this script did leaves a shell able to run root commands without asking.
-release_root() {
-	[ -n "${SUDO_KEEPALIVE_PID:-}" ] || return 0
-	kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true
-	SUDO_KEEPALIVE_PID=""
 }
 
 # sign_binary signs what was just built, before anything is copied from it.
@@ -114,8 +94,6 @@ install_wsl_windows() {
 	info "Enable the login item from the dashboard, or with: $BIN_NAME.exe install-autostart"
 }
 
-authorize_root
-
 build_ui
 
 if is_wsl; then
@@ -160,25 +138,55 @@ esac
 # already right.
 install_helper() {
 	[ "$(uname -s)" = "Darwin" ] || return 0
-	if [ "${SUDO_AUTHORIZED:-no}" != yes ]; then
-		na "no administrator rights here; install the privileged helper with: sudo $INSTALL_DIR/$BIN_NAME tun install-helper"
-		return 0
-	fi
 	if helper_is_this_build; then
 		info "The privileged helper is already this build."
 		return 0
 	fi
 	step "Installing the privileged helper"
+	if ! authorize_root; then
+		na "no administrator rights here; install the privileged helper with: sudo $INSTALL_DIR/$BIN_NAME tun install-helper"
+		return 0
+	fi
+	stage_helper_source
 	# The config is named here because sudo may hand the command root's home, and the
 	# approvals --grant writes are computed from this account's config, not root's.
 	local config="${APPTAIL_CONFIG:-${APPTAIL_STATE_DIR:-$HOME/Library/Application Support/app-tail}/config.json}"
 	if [ -f "$config" ]; then
-		sudo "$INSTALL_DIR/$BIN_NAME" tun install-helper --owner "$(id -u)" --grant --config "$config" ||
+		sudo "$HELPER_STAGE/$BIN_NAME" tun install-helper --owner "$(id -u)" --grant --config "$config" ||
 			fail "could not install the privileged helper"
 	else
-		sudo "$INSTALL_DIR/$BIN_NAME" tun install-helper --owner "$(id -u)" ||
+		sudo "$HELPER_STAGE/$BIN_NAME" tun install-helper --owner "$(id -u)" ||
 			fail "could not install the privileged helper"
 	fi
+	remove_helper_stage
+}
+
+# HELPER_STAGE is the root-owned folder the helper is installed from, while there is one.
+HELPER_STAGE=""
+
+# stage_helper_source copies the build into a folder only root can write, so that what runs
+# as root is a file this account can no longer change. The copy on PATH and the build output
+# both sit in folders this account owns: run from there, anything else running as this
+# account could swap the file between the password being typed and the program starting.
+stage_helper_source() {
+	HELPER_STAGE="$(sudo mktemp -d /tmp/app-tail-helper.XXXXXX)" ||
+		fail "could not make a root-owned folder to install the privileged helper from"
+	trap remove_helper_stage EXIT
+	sudo install -o root -g wheel -m 0755 "$BIN_PATH" "$HELPER_STAGE/$BIN_NAME" ||
+		fail "could not copy $BIN_PATH into $HELPER_STAGE"
+	# Compared after the copy, when the staged file can no longer change: a build swapped
+	# while it was being copied is caught here rather than run.
+	sudo cmp -s "$HELPER_STAGE/$BIN_NAME" "$BIN_PATH" ||
+		fail "$BIN_PATH changed while it was being copied; not running it as root"
+}
+
+# remove_helper_stage deletes the staged copy. It runs after the install and again as the
+# script exits, so a failure part way through leaves no root-owned program behind in /tmp.
+remove_helper_stage() {
+	[ -n "$HELPER_STAGE" ] || return 0
+	sudo rm -rf "$HELPER_STAGE" ||
+		na "could not remove $HELPER_STAGE; remove it with: sudo rm -rf $HELPER_STAGE"
+	HELPER_STAGE=""
 }
 
 # helper_is_this_build reports whether the installed helper is already a copy of the binary

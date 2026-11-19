@@ -8,6 +8,17 @@ source "$(dirname "$0")/scripts/lib.sh"
 
 cd "$REPO_ROOT"
 
+# missing_scanner reports a vulnerability or secret scanner that is not installed. On a
+# developer's machine the gate goes on without it and says so. In CI (CI=true, which GitHub
+# Actions sets) nobody reads an N/A, so a scan that quietly stopped running would
+# stay stopped: there it fails the gate.
+missing_scanner() {
+	if [ "${CI:-}" = "true" ]; then
+		fail "$1 (required when CI=true)"
+	fi
+	na "$1"
+}
+
 step "gofmt"
 UNFORMATTED=$(gofmt -l . 2>/dev/null || true)
 [ -z "$UNFORMATTED" ] || fail "unformatted files:"$'\n'"$UNFORMATTED"
@@ -83,7 +94,7 @@ if have golangci-lint; then
 	golangci-lint run --build-tags notray ./... || fail "golangci-lint (notray) reported findings"
 	info "clean (both build-tag sets)"
 else
-	na "golangci-lint not installed; run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest"
+	na "golangci-lint not installed; run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2"
 fi
 
 step "UI lint"
@@ -111,7 +122,7 @@ if have govulncheck; then
 	govulncheck ./... || fail "known vulnerabilities in the dependency graph"
 	info "no known vulnerabilities"
 else
-	na "govulncheck not installed; run: go install golang.org/x/vuln/cmd/govulncheck@latest"
+	missing_scanner "govulncheck not installed; run: go install golang.org/x/vuln/cmd/govulncheck@v1.10.0"
 fi
 
 step "gitleaks"
@@ -124,7 +135,7 @@ if have gitleaks; then
 	gitleaks git . -c .gitleaks.toml --no-banner || fail "gitleaks found secrets in the git history"
 	info "clean (working tree and history)"
 else
-	na "gitleaks not installed"
+	missing_scanner "gitleaks not installed"
 fi
 
 step "Cross-platform builds"

@@ -4,6 +4,7 @@ package grants
 
 import (
 	"errors"
+	"runtime"
 	"slices"
 	"strings"
 )
@@ -92,8 +93,8 @@ func (m *MissingGrants) Error() string {
 		}
 		b.WriteString(need.Reason)
 	}
-	b.WriteString(". An administrator approves it with `app-tail ")
-	b.WriteString(strings.Join(GrantArgs(m.Needs), " "))
+	b.WriteString(". An administrator approves it with `")
+	b.WriteString(quotedCommand(runtime.GOOS, append([]string{"app-tail"}, GrantArgs(m.Needs)...)))
 	b.WriteString("`")
 	return b.String()
 }

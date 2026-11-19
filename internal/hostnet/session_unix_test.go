@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -475,6 +476,52 @@ func TestTheHelperWillNotHoldMoreConnectionsThanItsCap(t *testing.T) {
 	}
 	if resp.Error != tooManyConnections {
 		t.Errorf("the helper said %q to a connection over its cap, want %q", resp.Error, tooManyConnections)
+	}
+}
+
+// A caller the helper turns away must not go on counting against that cap. The worst such
+// caller is one that never reads and leaves no room for the refusal to be written into: if
+// the helper waited on it, eight of them would keep the agent itself out.
+func TestCallersTheHelperTurnsAwayDoNotUseUpItsConnections(t *testing.T) {
+	t.Setenv(ownerEnv, strconv.Itoa(os.Getuid()+1))
+	path := startPlainHelper(t)
+
+	deaf := net.Dialer{Control: func(_, _ string, raw syscall.RawConn) error {
+		var optErr error
+		if err := raw.Control(func(fd uintptr) {
+			optErr = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_RCVBUF, 1)
+		}); err != nil {
+			return err
+		}
+		return optErr
+	}}
+	for range maxConnections {
+		conn, err := deaf.Dial("unix", path)
+		if err != nil {
+			t.Fatalf("connect to the helper: %v", err)
+		}
+		t.Cleanup(func() { conn.Close() })
+	}
+
+	var said string
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		conn := holdConnection(t, path)
+		var resp response
+		if err := readMessage(bufio.NewReader(conn), &resp); err != nil {
+			t.Fatalf("read what the helper said to one more caller: %v", err)
+		}
+		said = resp.Error
+		if said != tooManyConnections || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if said == tooManyConnections {
+		t.Fatal("callers the helper had already turned away were still holding every connection it allows")
+	}
+	if !strings.Contains(said, "takes commands from user") {
+		t.Errorf("the helper said %q to a caller from another account, want the refusal naming the mismatch", said)
 	}
 }
 

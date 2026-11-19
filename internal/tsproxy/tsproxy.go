@@ -45,6 +45,25 @@ const ProxyUser = "app-tail"
 // is torn down under them.
 const shutdownGrace = 2 * time.Second
 
+// tunnelIdle is how long a CONNECT tunnel is kept with nothing crossing it in either
+// direction.
+//
+// It is what gives a tunnel's place back when both of its ends went away without saying so,
+// which no read ever reports. Two hours is the horizon the operating systems themselves use
+// before asking whether a silent connection is still there, and the least a NAT is required
+// to remember one for, so a session this ends -- a shell left open with no keepalive of its
+// own -- is one the network in between was already free to drop.
+const tunnelIdle = 2 * time.Hour
+
+// maxTunnels bounds how many CONNECT tunnels one instance carries at once.
+//
+// A tunnel holds two descriptors for as long as it lives, and opening one costs a program
+// on this machine nothing. Without a ceiling the number this process holds is set by
+// whichever program is asking, and running out takes every other module with it. Refusing
+// at the cap rather than waiting, for the reason a port forward does: a refusal is an
+// answer the program can act on, and a request held open looks like a slow destination.
+const maxTunnels = 512
+
 // Network is the set of connections a proxy dials through. *tunnel.Registry satisfies it,
 // which is what lets the proxy ask "which connection carries this" instead of holding one
 // network of its own.
@@ -80,6 +99,9 @@ type Options struct {
 	// is: this machine is one of the places a proxy reaches, and a test stands in for it
 	// the same way it stands in for the private ones. Empty means the real one.
 	DialDirect func(ctx context.Context, network, address string) (net.Conn, error)
+	// DialGuard judges each address the real direct dial is about to connect to. Nil lets
+	// every connection through. It has no say over DialDirect, which replaces that dial.
+	DialGuard DialGuard
 }
 
 // Set is every proxy instance the configuration declares, reconciled together.
@@ -93,6 +115,11 @@ type Set struct {
 	stateDir string
 	now      func() time.Time
 	direct   func(ctx context.Context, network, address string) (net.Conn, error)
+	// tunnelIdle and maxTunnels are the two constants, held here so a test reaches either
+	// limit without waiting two hours or opening five hundred tunnels to do it. Each
+	// instance takes its own copy when it is made.
+	tunnelIdle time.Duration
+	maxTunnels int
 
 	// resolved is what the networks' own resolvers last said about each name. It is shared
 	// by every instance because an answer is a fact about the networks rather than about
@@ -128,15 +155,17 @@ func NewSet(opts Options) *Set {
 	}
 	direct := opts.DialDirect
 	if direct == nil {
-		direct = dialThisMachine
+		direct = dialThisMachine(opts.DialGuard)
 	}
 	return &Set{
-		net:       opts.Network,
-		logger:    logger,
-		stateDir:  opts.StateDir,
-		now:       now,
-		direct:    direct,
-		instances: make(map[string]*Instance),
+		net:        opts.Network,
+		logger:     logger,
+		stateDir:   opts.StateDir,
+		now:        now,
+		direct:     direct,
+		tunnelIdle: tunnelIdle,
+		maxTunnels: maxTunnels,
+		instances:  make(map[string]*Instance),
 	}
 }
 
@@ -317,11 +346,23 @@ type Instance struct {
 	tunnels context.Context
 	cancel  context.CancelFunc
 	wg      sync.WaitGroup
+
+	// tunnelSlots holds one place per CONNECT tunnel this instance may carry at once. It
+	// belongs to the instance rather than to the set, so one busy proxy cannot spend the
+	// budget of another.
+	tunnelSlots chan struct{}
+	tunnelIdle  time.Duration
 }
 
 // newInstance builds one instance. Nothing binds until apply runs.
 func newInstance(set *Set, held config.ProxyInstance) *Instance {
-	p := &Instance{set: set, id: held.ID, held: held}
+	p := &Instance{
+		set:         set,
+		id:          held.ID,
+		held:        held,
+		tunnelSlots: make(chan struct{}, set.maxTunnels),
+		tunnelIdle:  set.tunnelIdle,
+	}
 	p.log.Store(set.logger.With("proxy", held.Handle()))
 	p.transport = &http.Transport{
 		DialContext: p.dial,
@@ -479,7 +520,7 @@ func (p *Instance) start(spec listenerSpec) error {
 
 	socksSrv := &socks5.Server{
 		Logf:     func(format string, args ...any) { p.logger().Debug(fmt.Sprintf(format, args...)) },
-		Dialer:   p.dial,
+		Dialer:   p.dialHeld,
 		Username: spec.username,
 		Password: spec.password,
 	}

@@ -207,6 +207,11 @@ func TestRebindingHostsAreRefusedAndLeakNothing(t *testing.T) {
 		"evil.localhost.attacker.example",
 		"notlocalhost",
 		"192.168.1.10:8377",
+		// A name under .localhost goes through the resolver, and one that forwards it
+		// upstream lets whoever answers point it anywhere.
+		"evil.localhost",
+		"app-tail.localhost:8377",
+		"deep.sub.LOCALHOST.",
 	} {
 		t.Run(host, func(t *testing.T) {
 			h := newHarness(t)
@@ -235,7 +240,7 @@ func TestLoopbackHostsAreServed(t *testing.T) {
 		"localhost:5173",
 		"localhost",
 		"localhost.",
-		"app-tail.localhost:8377",
+		"LOCALHOST:8377",
 		"[::1]:8377",
 		"[::1]",
 		"127.99.4.2:8377",
@@ -345,7 +350,6 @@ func TestWritesFromThePageTheAgentServedAreAllowed(t *testing.T) {
 		"127.0.0.1:8377",
 		"localhost:5173",
 		"[::1]:8377",
-		"app-tail.localhost:8377",
 	} {
 		t.Run(host, func(t *testing.T) {
 			h := newHarness(t)

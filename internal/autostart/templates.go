@@ -5,6 +5,7 @@ package autostart
 import (
 	"fmt"
 	"strings"
+	"unicode"
 	"unicode/utf16"
 )
 
@@ -52,7 +53,11 @@ func (m *Manager) plist() string {
 }
 
 // systemdUnit renders the Linux user service.
-func (m *Manager) systemdUnit() string {
+func (m *Manager) systemdUnit() (string, error) {
+	exec, err := escapeExec(m.command())
+	if err != nil {
+		return "", err
+	}
 	return fmt.Sprintf(`[Unit]
 Description=app-tail userspace Tailscale port forwarder
 Documentation=https://github.com/sellitus/app-tail
@@ -66,7 +71,7 @@ RestartSec=5
 
 [Install]
 WantedBy=default.target
-`, escapeExec(m.command()))
+`, exec), nil
 }
 
 // windowsRunValue renders the string stored under the HKCU Run key.
@@ -235,19 +240,31 @@ func escapeXML(s string) string {
 }
 
 // escapeExec renders an argument list for a systemd ExecStart line. systemd splits on
-// whitespace and interprets backslashes, so both must be quoted and escaped.
-func escapeExec(args []string) string {
+// whitespace and interprets backslashes, so both must be quoted and escaped, and it reads a
+// percent sign as a specifier and a dollar sign as a variable, so each is doubled to stay
+// itself. The program's own path keeps a single dollar sign: systemd expands no variable
+// there, and would look for a file with two.
+//
+// An argument holding a control character is refused. A unit file is read a line at a time,
+// so a line break would end the command and start a directive, and no quoting carries one.
+func escapeExec(args []string) (string, error) {
 	quoted := make([]string, 0, len(args))
-	for _, arg := range args {
-		if arg == "" || strings.ContainsAny(arg, " \t\"\\'") {
-			escaped := strings.ReplaceAll(arg, `\`, `\\`)
-			escaped = strings.ReplaceAll(escaped, `"`, `\"`)
-			quoted = append(quoted, `"`+escaped+`"`)
-			continue
+	for i, arg := range args {
+		if strings.ContainsFunc(arg, func(r rune) bool { return r != '\t' && unicode.IsControl(r) }) {
+			return "", fmt.Errorf("%q holds a control character, which a systemd unit cannot carry in a command", arg)
 		}
-		quoted = append(quoted, arg)
+		escaped := strings.ReplaceAll(arg, "%", "%%")
+		if i > 0 {
+			escaped = strings.ReplaceAll(escaped, "$", "$$")
+		}
+		if arg == "" || strings.ContainsAny(arg, " \t\"\\'") {
+			escaped = strings.ReplaceAll(escaped, `\`, `\\`)
+			escaped = strings.ReplaceAll(escaped, `"`, `\"`)
+			escaped = `"` + escaped + `"`
+		}
+		quoted = append(quoted, escaped)
 	}
-	return strings.Join(quoted, " ")
+	return strings.Join(quoted, " "), nil
 }
 
 // escapeWindowsArgs renders an argument list the way the Windows command-line parser

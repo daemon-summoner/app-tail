@@ -25,6 +25,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"gvisor.dev/gvisor/pkg/tcpip"
@@ -512,19 +513,62 @@ func (f *Fabric) carryUDP(local *gonet.UDPConn, dest Destination, at, from netip
 	if watch != nil {
 		defer watch.Close()
 	}
+	relayBothWays(local, upstream, counting.up, counting.down, watch, udpIdle, udpSlack,
+		func(err error) { f.noteFlowEnd(ctx, dest, target, err) })
+}
+
+// relayBothWays carries a datagram flow in both directions until nothing has crossed it
+// either way for idle, or either side has gone. ended is told what stopped each direction.
+//
+// The two directions answer to one clock. Plenty of flows speak one way only -- a log
+// shipper, a metrics sender, a media stream -- and a direction timed on its own traffic
+// would end such a flow every idle for the silence of the side that was never going to
+// speak.
+func relayBothWays(
+	local, upstream net.Conn,
+	up, down func(int64),
+	watch netpipe.Stream,
+	idle, slack time.Duration,
+	ended func(error),
+) {
+	quiet := newFlowQuiet(idle, slack)
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		f.noteFlowEnd(ctx, dest, target, relayDatagrams(local, upstream, counting.up, watch))
+		ended(relayDatagrams(local, upstream, up, watch, quiet))
 		closeQuietly(upstream)
 	}()
 	go func() {
 		defer wg.Done()
-		f.noteFlowEnd(ctx, dest, target, relayDatagrams(upstream, local, counting.down, nil))
+		ended(relayDatagrams(upstream, local, down, nil, quiet))
 		closeQuietly(local)
 	}()
 	wg.Wait()
+}
+
+// flowQuiet is how long a datagram flow may go without traffic, and when traffic last
+// crossed it. One is shared by everything carrying the flow.
+type flowQuiet struct {
+	idle  time.Duration
+	slack time.Duration
+	last  atomic.Int64 // unix nanos
+}
+
+func newFlowQuiet(idle, slack time.Duration) *flowQuiet {
+	q := &flowQuiet{idle: idle, slack: slack}
+	q.last.Store(time.Now().UnixNano())
+	return q
+}
+
+// cutoff is when the flow may be given up on if nothing more crosses it.
+func (q *flowQuiet) cutoff() time.Time {
+	return time.Unix(0, q.last.Load()).Add(q.idle + q.slack)
+}
+
+// over reports whether the flow has been quiet for its whole idle time as of now.
+func (q *flowQuiet) over(now time.Time) bool {
+	return now.Sub(time.Unix(0, q.last.Load())) >= q.idle
 }
 
 // noteFlowEnd records why one direction of a flow stopped, for the ends that are not the
@@ -555,8 +599,8 @@ func (f *Fabric) noteFlowEnd(ctx context.Context, dest Destination, target strin
 // decision this app made and already recorded, the other is something that went wrong.
 var errStoppedByInspection = errors.New("stopped by traffic inspection")
 
-// relayDatagrams moves datagrams from one side to the other until the source has been quiet
-// for udpIdle or either side has gone, reporting what ended it.
+// relayDatagrams moves datagrams from one side to the other until the flow has been quiet
+// for its idle time or either side has gone, reporting what ended it.
 //
 // Datagram boundaries are preserved, which a stream copy would not do: a single read is a
 // single write, so a program that sent two datagrams never receives them joined into one.
@@ -564,26 +608,31 @@ var errStoppedByInspection = errors.New("stopped by traffic inspection")
 // watch reads each datagram before it is passed on and is nil when nothing is reading them.
 // Before, not after: a datagram offered once it has already been sent could be reported on
 // but never stopped.
-func relayDatagrams(src, dst net.Conn, report func(int64), watch netpipe.Stream) error {
+//
+// quiet is the flow's, not this direction's: a read that times out here while the other
+// direction is still carrying traffic is waited on again.
+func relayDatagrams(src, dst net.Conn, report func(int64), watch netpipe.Stream, quiet *flowQuiet) error {
 	held := datagramBuffer()
 	defer datagramBuffers.Put(held)
 	buf := *held
 
 	// The deadline is re-armed on a schedule rather than per datagram: setting it takes a
 	// lock and reschedules a timer, and on a busy flow that is paid on every datagram to
-	// move a deadline two minutes out. Arming it further out than udpIdle by the same amount
-	// as the gap between arms is what keeps the promise exact in the direction that matters
-	// -- a flow is never cut before it has been quiet for udpIdle, only up to udpSlack after.
+	// move a deadline two minutes out. Arming it further out than the idle time by the same
+	// amount as the gap between arms is what keeps the promise exact in the direction that
+	// matters -- a flow is never cut before it has been quiet for its idle time, only up to
+	// the slack after.
 	var rearmAfter time.Time
 	for {
 		if now := time.Now(); !now.Before(rearmAfter) {
-			if err := src.SetReadDeadline(now.Add(udpIdle + udpSlack)); err != nil {
+			if err := src.SetReadDeadline(quiet.cutoff()); err != nil {
 				return fmt.Errorf("arm the idle deadline on the flow: %w", err)
 			}
-			rearmAfter = now.Add(udpSlack)
+			rearmAfter = now.Add(quiet.slack)
 		}
 		n, err := src.Read(buf)
 		if n > 0 {
+			quiet.last.Store(time.Now().UnixNano())
 			if watch != nil && watch.Up(buf[:n]) {
 				return errStoppedByInspection
 			}
@@ -596,6 +645,10 @@ func relayDatagrams(src, dst net.Conn, report func(int64), watch netpipe.Stream)
 			}
 		}
 		if err != nil {
+			if errors.Is(err, os.ErrDeadlineExceeded) && !quiet.over(time.Now()) {
+				rearmAfter = time.Time{}
+				continue
+			}
 			return err
 		}
 	}

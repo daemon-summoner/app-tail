@@ -17,7 +17,6 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
-	"net/http/httptrace"
 	"net/url"
 	"path/filepath"
 	"strings"
@@ -112,12 +111,7 @@ func Discover(store *config.Store) (*Client, error) {
 }
 
 // prove challenges the listener to show it holds the token before the token is sent to
-// it. The dashboard-address record outlives a crashed agent, and whatever binds the port
-// next would otherwise receive the token and every request carrying it.
-//
-// The proof is checked against the address the connection actually reached, which the
-// agent signs from its own side of the same socket, so a squatter relaying the challenge
-// to the real agent on another port gets back an answer naming that other port.
+// it, once per client.
 func (c *Client) prove(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -125,42 +119,16 @@ func (c *Client) prove(ctx context.Context) error {
 		return nil
 	}
 
-	nonce, err := apiauth.NewNonce()
-	if err != nil {
-		return err
-	}
-	encoded, err := json.Marshal(map[string]string{"nonce": nonce})
-	if err != nil {
-		return fmt.Errorf("encode the identity check: %w", err)
-	}
-	var reached string
-	traced := httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
-		GotConn: func(info httptrace.GotConnInfo) { reached = info.Conn.RemoteAddr().String() },
-	})
-	req, err := http.NewRequestWithContext(traced, http.MethodPost, c.baseURL+"/api/auth/hello", bytes.NewReader(encoded))
-	if err != nil {
-		return fmt.Errorf("build the identity check: %w", err)
-	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return fmt.Errorf("%w at %s: %w", ErrNoAgent, c.baseURL, err)
-	}
-	defer resp.Body.Close()
-	payload, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
-	if err != nil {
-		return fmt.Errorf("read the agent's identity check: %w", err)
-	}
-
-	var answer struct {
-		Proof string `json:"proof"`
-	}
-	if resp.StatusCode != http.StatusOK || json.Unmarshal(payload, &answer) != nil ||
-		!apiauth.VerifyProof(c.token, nonce, reached, answer.Proof) {
+	err := apiauth.ProveListener(ctx, c.http, c.baseURL, c.token)
+	var unreached *url.Error
+	switch {
+	case errors.Is(err, apiauth.ErrNotProven):
 		return fmt.Errorf("something other than your app-tail agent is listening on %s; "+
 			"refusing to send it your credentials", strings.TrimPrefix(c.baseURL, "http://"))
+	case errors.As(err, &unreached):
+		return fmt.Errorf("%w at %s: %w", ErrNoAgent, c.baseURL, err)
+	case err != nil:
+		return err
 	}
 	c.proven = true
 	return nil

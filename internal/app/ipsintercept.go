@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net"
 	"os"
@@ -287,7 +288,7 @@ func (a *Agent) interceptAuthority(runner *ipsRunner, limits tlsmint.Constraints
 
 	certPath, keyPath := interceptPaths(a.stateDir())
 	certPEM, certErr := os.ReadFile(certPath)
-	keyPEM, keyErr := os.ReadFile(keyPath)
+	keyPEM, keyErr := readPrivateKeyFile(keyPath)
 	switch {
 	case certErr == nil && keyErr == nil:
 		authority, err := tlsmint.LoadAuthority(certPEM, keyPEM)
@@ -316,6 +317,18 @@ func (a *Agent) interceptAuthority(runner *ipsRunner, limits tlsmint.Constraints
 		return nil, fmt.Errorf("the root certificate files are not in a state app-tail can use: %w",
 			errors.Join(certErr, keyErr))
 	}
+}
+
+// readPrivateKeyFile reads the root's key, refusing a file another account could have written
+// or can read. Whoever holds that key can sign for any name this machine trusts, so a key that
+// was readable is reported with its repair rather than used or quietly narrowed.
+func readPrivateKeyFile(path string) ([]byte, error) {
+	f, err := fileown.OpenPrivate(path)
+	if err != nil {
+		return nil, err
+	}
+	data, err := io.ReadAll(f)
+	return data, errors.Join(err, f.Close())
 }
 
 // newInterceptAuthority generates a root and writes it down.

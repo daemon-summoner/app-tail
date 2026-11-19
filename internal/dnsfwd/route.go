@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"golang.org/x/net/dns/dnsmessage"
+	"golang.org/x/net/publicsuffix"
 )
 
 // Target is where one query goes.
@@ -322,7 +323,7 @@ func Route(q Question, r Rules) Decision {
 		return local("a multicast-DNS name")
 	case hasSuffix(q.Name, normalizeSuffixes(r.LocalSuffixes)):
 		return local("a domain you listed as local")
-	case hasSuffix(q.Name, normalizeSuffixes(r.SearchDomains)):
+	case hasSuffix(q.Name, UsableSearchDomains(r.SearchDomains)):
 		return local("a search domain this network published")
 	}
 	// Last, and that position is the rule: a name this network, the loopback zone or one of
@@ -440,6 +441,25 @@ func normalizeSuffixes(in []string) []string {
 		if s != "" {
 			out = append(out, s)
 		}
+	}
+	return out
+}
+
+// UsableSearchDomains are the published search domains a network can claim names under,
+// normalized. A domain on the ICANN side of the public suffix list -- "com", "co.uk", "io"
+// -- is dropped: no network owns one, and one that says it does would take every name
+// under it to its own resolver, ahead of every blocklist. A label nobody registers names
+// under ("lan", "home", "corp") stays, and so does "home.arpa", which the list carries but
+// RFC 8375 gives to the home network.
+func UsableSearchDomains(in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, s := range normalizeSuffixes(in) {
+		if s != "home.arpa" {
+			if suffix, icann := publicsuffix.PublicSuffix(s); icann && suffix == s {
+				continue
+			}
+		}
+		out = append(out, s)
 	}
 	return out
 }

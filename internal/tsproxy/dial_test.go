@@ -5,6 +5,8 @@ package tsproxy
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
 	"net/netip"
 	"strings"
 	"testing"
@@ -418,4 +420,46 @@ func TestTrafficIsAttributedThroughARealDial(t *testing.T) {
 	if got := find(t, p.Status().Counters.Destinations, "peer:22"); got.Active != 0 {
 		t.Errorf("peer:22 active = %d after close, want 0", got.Active)
 	}
+}
+
+// A route no connection carries is dialled on this machine's own network, and this machine
+// is where the app's own listeners are. The guard is asked about the address actually being
+// connected to, so one of those is refused while every other service here stays reachable.
+func TestADirectDialTheGuardRefusesIsNotMade(t *testing.T) {
+	tn := newFakeNetwork(t)
+	own, other := echoServer(t), echoServer(t)
+
+	box := newProxyBoxWith(Options{
+		Network: tn,
+		DialGuard: func(network string, addr netip.AddrPort) error {
+			if !strings.HasPrefix(network, "tcp") {
+				return fmt.Errorf("the guard was asked about %q, want a tcp network", network)
+			}
+			if addr == own {
+				return errors.New("that is app-tail's own dashboard")
+			}
+			return nil
+		},
+	}, func(p *config.ProxyInstance) { p.Rules = reachThisMachineToo() })
+	t.Cleanup(box.set.Close)
+	box.mustApply(t)
+	inst := box.instance()
+
+	_, _, refused := connect(t, inst, own.String(), connectRequest(own.String()))
+	if refused.StatusCode != http.StatusForbidden {
+		t.Fatalf("CONNECT to a guarded address answered %d, want %d", refused.StatusCode, http.StatusForbidden)
+	}
+	if reason := refused.Header.Get(ConnectErrorHeader); !strings.Contains(reason, "own dashboard") {
+		t.Errorf("refusal reason = %q, want the guard's own words", reason)
+	}
+	if got := inst.Status().Counters; got.Refused != 1 || got.Failed != 0 {
+		t.Errorf("counters = %d refused, %d failed; want the guard's refusal counted as one refusal", got.Refused, got.Failed)
+	}
+
+	conn, reader, carried := connect(t, inst, other.String(), connectRequest(other.String()))
+	if carried.StatusCode != http.StatusOK {
+		t.Fatalf("CONNECT to an ordinary loopback service answered %d: %s",
+			carried.StatusCode, carried.Header.Get(ConnectErrorHeader))
+	}
+	echoOver(t, conn, reader, "still reachable")
 }

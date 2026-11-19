@@ -19,7 +19,10 @@ func TestCopyRefusesWhatAClipboardCannotUsefullyHold(t *testing.T) {
 	}{
 		{"address", "100.101.102.103", ""},
 		{"dns name", "htpc.tail1a2b3c.ts.net", ""},
-		{"multi-line", "one\ntwo", ""},
+		{"line feed", "htpc.tail1a2b3c.ts.net\nrm -rf ~", "more than one line"},
+		{"carriage return", "htpc.tail1a2b3c.ts.net\rrm -rf ~", "more than one line"},
+		{"line separator", "htpc.tail1a2b3c.ts.net\u2028rm -rf ~", "more than one line"},
+		{"paragraph separator", "htpc.tail1a2b3c.ts.net\u2029rm -rf ~", "more than one line"},
 		{"tab", "one\ttwo", ""},
 		{"empty", "", "nothing to copy"},
 		{"null byte", "100.64.0.1\x00", "control character"},

@@ -58,13 +58,17 @@ func (q Question) fqdn() string {
 	return q.Name + "."
 }
 
-// parseQuestion reads the header and the first question. A query with no question is
-// malformed for our purposes: there is nothing to route it by.
+// parseQuestion reads the header and the question. A message that does not carry exactly one
+// is malformed for our purposes: none leaves nothing to route it by, and a second would be
+// passed to a resolver without having been routed, or measured against a list, at all.
 func parseQuestion(msg []byte) (Question, error) {
 	var p dnsmessage.Parser
 	h, err := p.Start(msg)
 	if err != nil {
 		return Question{}, fmt.Errorf("%w: %w", errMalformed, err)
+	}
+	if count := binary.BigEndian.Uint16(msg[4:6]); count != 1 {
+		return Question{}, fmt.Errorf("%w: it carries %d questions", errMalformed, count)
 	}
 	q, err := p.Question()
 	if err != nil {

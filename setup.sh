@@ -220,8 +220,8 @@ ensure_go_tools() {
 		fi
 		info "installing $tool"
 		case "$tool" in
-		golangci-lint) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest ;;
-		govulncheck) go install golang.org/x/vuln/cmd/govulncheck@latest ;;
+		golangci-lint) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2 ;;
+		govulncheck) go install golang.org/x/vuln/cmd/govulncheck@v1.10.0 ;;
 		esac || na "could not install $tool; ./verify.sh will report it as absent"
 	done
 }
@@ -381,19 +381,56 @@ openvpn_bundle_current() {
 		diff -rq "$stage/openvpn-lib" "$OPENVPN_LIBDIR" >/dev/null 2>&1
 }
 
-# install_openvpn_bundle puts the staged bundle in place, owned by root. The libraries go
-# first so the program is never in place loading libraries that are not.
+# install_openvpn_bundle puts the staged bundle in place, owned by root, by way of a copy
+# this account cannot change.
+#
+# The bundle is built in a folder this account owns, because rewriting and signing it need
+# no rights. Installed straight from there, anything else running as this account could swap
+# a file between the check and the copy root makes of it. So root takes its own copy first,
+# into a folder only root can write, and what is checked there is what is installed.
 install_openvpn_bundle() {
-	local stage="$1" lib
+	local stage="$1" frozen status=0
+	frozen="$(sudo_run mktemp -d /tmp/app-tail-openvpn-root.XXXXXX)" || return 1
+	install_frozen_openvpn "$stage" "$frozen" || status=$?
+	sudo_run rm -rf "$frozen" ||
+		na "could not remove $frozen; remove it with: sudo rm -rf $frozen"
+	return "$status"
+}
+
+# install_frozen_openvpn copies the bundle staged in $1 into the root-owned folder $2, checks
+# that copy, and installs from it. The libraries go first so the program is never in place
+# loading libraries that are not.
+install_frozen_openvpn() {
+	local stage="$1" frozen="$2" lib
+	# Readable and enterable by this account, writable by root alone: the checks below run
+	# without root, on files that can no longer change under them.
+	sudo_run chmod 0755 "$frozen" || return 1
+	sudo_run mkdir -m 0755 "$frozen/openvpn-lib" || return 1
+	for lib in "$stage"/openvpn-lib/*; do
+		[ -f "$lib" ] || continue
+		sudo_run install -o root -g wheel -m 0644 "$lib" "$frozen/openvpn-lib/" || return 1
+	done
+	sudo_run install -o root -g wheel -m 0755 "$stage/openvpn" "$frozen/openvpn" || return 1
+
+	if ! cmp -s "$stage/openvpn" "$frozen/openvpn" ||
+		! diff -rq "$stage/openvpn-lib" "$frozen/openvpn-lib" >/dev/null 2>&1; then
+		na "the openvpn bundle changed while root was copying it; nothing was installed"
+		return 1
+	fi
+	"$frozen/openvpn" --version >/dev/null 2>&1 || [ $? -eq 1 ] || {
+		na "the copy of openvpn root took does not start; nothing was installed"
+		return 1
+	}
+
 	sudo_run mkdir -p "$OPENVPN_LIBDIR" || return 1
 	sudo_run chown root:wheel "$(dirname "$OPENVPN_TARGET")" "$OPENVPN_LIBDIR" || return 1
 	sudo_run chmod 0755 "$(dirname "$OPENVPN_TARGET")" "$OPENVPN_LIBDIR" || return 1
 	sudo_run find "$OPENVPN_LIBDIR" -mindepth 1 -delete || return 1
-	for lib in "$stage"/openvpn-lib/*; do
+	for lib in "$frozen"/openvpn-lib/*; do
 		[ -f "$lib" ] || continue
 		sudo_run install -o root -g wheel -m 0644 "$lib" "$OPENVPN_LIBDIR/" || return 1
 	done
-	sudo_run install -o root -g wheel -m 0755 "$stage/openvpn" "$OPENVPN_TARGET" || return 1
+	sudo_run install -o root -g wheel -m 0755 "$frozen/openvpn" "$OPENVPN_TARGET" || return 1
 }
 
 # setup_openvpn_darwin installs openvpn and puts a root-owned, self-contained copy where the

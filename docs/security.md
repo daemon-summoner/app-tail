@@ -77,6 +77,19 @@ one. In tun mode the machine's own networking carries the tailnet's traffic, so 
 that path is inspected. `ips-mode` is `detect` until you change it, and `detect` records a
 match without refusing anything.
 
+A TCP connection is checked against the signatures as its first 4 KB crosses. One that ends
+before that is checked when it closes, and a match found there is recorded as a detection
+and never as a refusal, because the bytes were already delivered. UDP forwards are inspected
+datagram by datagram like the other paths, and a DNS name written with a compression pointer
+is read as the name it points to.
+
+Feeds are bounded. A feed prefix wider than `/8` (IPv4) or `/16` (IPv6) is skipped and
+counted, since a single line of that size would refuse a large part of the internet. A
+refresh that shrinks a feed to under a tenth of the copy already held, when that copy has at
+least 100 entries, is refused and the old copy stays in force. A feed fetch will not connect
+to loopback, private, link-local, reserved or benchmarking addresses, including ones
+disguised inside NAT64, 6to4 or IPv4-compatible IPv6 forms.
+
 ### Levels
 
 The feeds of known-bad addresses come as six levels, lowest first: `minimum`, `low`, `medium`,
@@ -183,6 +196,9 @@ These need an administrator's approval:
   server approved with one certificate authority still needs approval for another.
 - Traffic interception.
 
+Applying a route set that switches on stateful filtering is refused outright: it changes how
+the machine forwards other devices' traffic, and no approval covers it.
+
 An OpenVPN server also hands this machine an address, and that address puts its whole network
 on the new interface, much like a route. The helper holds it to the same rules: once the
 connection is up, it reads the addresses the interface ended up with, and stops the
@@ -242,6 +258,13 @@ local process can use it. There is no portable way to check the peer credentials
 loopback TCP connection, so this is a property of the feature rather than something a
 later release tightens. `proxy.requireToken` is the answer if you need one.
 
+The proxy will not connect to app-tail's own listeners, the dashboard included: a request
+for one gets a 403 (or a refused SOCKS5 connect). Without that, another account could ask
+the proxy to fetch your sign-in link from the dashboard on its behalf. A tunnel ends after
+two hours with nothing crossing it, and one proxy carries at most 512 at a time, SOCKS5
+included. The proxy also checks a name against your access rules before it looks the name
+up, so a destination no rule could allow never reaches the tailnet's resolvers.
+
 ## Where credentials are stored
 
 The credentials you enter in the dashboard or the CLI live in `secrets.json`, beside
@@ -274,6 +297,12 @@ If `secrets.json` is there but cannot be read or decrypted, app-tail refuses to 
 names the file, rather than starting without your credentials. `app-tail config check`
 reports the same error. Restore the file from a backup, or move it aside and enter the
 credentials again.
+
+A `secrets.json` or `tls/ca.key` that other accounts can read, or that another account
+owns, is refused the same way, with the command that repairs it (`chmod 600` on the file).
+A backup restored by a tool that widens permissions hits this once. On Windows the state
+folder and the API token file are refused when another account owns them or can reach them,
+and the message gives the `icacls` command that fixes it.
 
 Copies of `config.json` that app-tail keeps follow the same rule. The copy taken before a
 document is upgraded (`config.json.v<N>.bak`) has its credentials removed, and restoring it

@@ -745,3 +745,48 @@ func TestADownloadWithNoReachableAddressReportsWhatEachOneDid(t *testing.T) {
 		t.Errorf("error = %q, want what the dials did rather than the no-address case", err)
 	}
 }
+
+// An IPv6 address can be an IPv4 address in a wrapper a gateway or this machine's own stack
+// takes off again, so the address inside is the one that gets reached and the one that has to
+// be checked. The ranges nothing on the internet answers from are refused for the same reason
+// the private ones are.
+func TestAFileIsNotFetchedFromAnAddressThatOnlyLooksLikeTheInternet(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		addr string
+		says string
+	}{
+		{"this network, by any address in it", "0.1.2.3", "no host"},
+		{"the benchmarking range", "198.18.0.1", "benchmark"},
+		{"the top of the benchmarking range", "198.19.255.255", "benchmark"},
+		{"the reserved range", "240.0.0.1", "reserved"},
+		{"the broadcast address", "255.255.255.255", "reserved"},
+		{"loopback behind the NAT64 prefix", "64:ff9b::7f00:1", "loopback"},
+		{"a private network behind the NAT64 prefix", "64:ff9b::a00:5", "private network"},
+		{"the metadata address behind the NAT64 prefix", "64:ff9b::a9fe:a9fe", "link-local"},
+		{"a private network inside a 6to4 address", "2002:c0a8:101::1", "private network"},
+		{"a tailnet address inside a 6to4 address", "2002:6465:6667::1", "tailnet"},
+		{"a private network written as an IPv4-compatible address", "::10.0.0.5", "private network"},
+		{"loopback written as an IPv4-compatible address", "::127.0.0.1", "loopback"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := Fetchable(netip.MustParseAddr(tc.addr))
+
+			if err == nil {
+				t.Fatalf("Fetchable(%s) = nil; a file would be downloaded from it", tc.addr)
+			}
+			if !strings.Contains(err.Error(), tc.says) {
+				t.Errorf("Fetchable(%s) said %q, which does not name why", tc.addr, err)
+			}
+		})
+	}
+
+	for _, raw := range []string{
+		"64:ff9b::808:808", "2002:808:808::1", "::8.8.8.8",
+		"198.17.255.255", "198.20.0.1", "223.255.255.1",
+	} {
+		if err := Fetchable(netip.MustParseAddr(raw)); err != nil {
+			t.Errorf("Fetchable(%s) = %v; the address inside it is on the internet", raw, err)
+		}
+	}
+}

@@ -167,6 +167,9 @@ func TestAPatternInTheOpeningBytesIsFoundThroughTheWindow(t *testing.T) {
 	if matched.seen[0].Value != "a token" {
 		t.Errorf("the report named %q", matched.seen[0].Value)
 	}
+	if matched.seen[0].Delivered {
+		t.Error("a match found while the connection was open said there was nothing left to stop")
+	}
 	// What the connection turned out to be goes with the match: a token leaving over a plain
 	// web request and one leaving over something unrecognised are different findings.
 	if matched.where[0] != ProtocolHTTP {
@@ -379,5 +382,113 @@ func TestWhatADatagramSignatureReportSaysIsWhatTheFlowAnswers(t *testing.T) {
 	})
 	if !flow.Up([]byte("carrying hunter2-9f3a1c along")) {
 		t.Fatal("a signature report asking for a stop was not carried back")
+	}
+}
+
+// Most connections end long before they fill the window, and a pattern in one of those is as
+// much a finding as one in a long transfer. It is reported when the connection closes, which
+// is too late to stop anything and is the only moment a short one can be read at all.
+func TestAPatternInAConnectionThatEndsEarlyIsReportedAtClose(t *testing.T) {
+	var matched matching
+	stream := NewStream(StreamOptions{
+		Signatures: signatures(t, `a token = "hunter2-9f3a1c"`),
+		Matched:    matched.report,
+	}, nil)
+
+	stream.Up([]byte("POST /upload HTTP/1.1\r\nHost: files.example\r\n\r\nsecret=hunter2-9f3a1c"))
+	if len(matched.seen) != 0 {
+		t.Fatal("a signature was reported while the window could still grow")
+	}
+	stream.Close()
+
+	if len(matched.seen) != 1 {
+		t.Fatalf("the pattern was reported %d times, want once", len(matched.seen))
+	}
+	if matched.seen[0].Value != "a token" || matched.where[0] != ProtocolHTTP {
+		t.Errorf("the report named %q over %q, want the token over %q",
+			matched.seen[0].Value, matched.where[0], ProtocolHTTP)
+	}
+	if !matched.seen[0].Delivered {
+		t.Error("a match found at the close did not say the bytes had already been delivered")
+	}
+	if stream.win != nil {
+		t.Error("the window is still held after the close")
+	}
+
+	stream.Close()
+	if len(matched.seen) != 1 {
+		t.Error("closing twice reported the pattern twice")
+	}
+}
+
+// A connection that closed before its opening could be named is still read for patterns, and
+// the report says what the opening looked like as far as it went.
+func TestAPatternInAConnectionThatEndsUnnamedIsReportedAtClose(t *testing.T) {
+	var counted counting
+	var matched matching
+	stream := NewStream(StreamOptions{
+		Signatures: signatures(t, `a token = "hunter2-9f3a1c"`),
+		Matched:    matched.report,
+	}, counted.report)
+
+	stream.Up([]byte("GET /?q=hunter2-9f3a1c HTTP/1.1\r\nHost: files"))
+	stream.Close()
+
+	if len(matched.seen) != 1 {
+		t.Fatalf("the pattern was reported %d times, want once", len(matched.seen))
+	}
+	if matched.where[0] != ProtocolHTTP {
+		t.Errorf("the report said the connection was %q, want %q", matched.where[0], ProtocolHTTP)
+	}
+}
+
+func TestACloseReportsNothingWhereThereIsNothingToReport(t *testing.T) {
+	tests := []struct {
+		name  string
+		sends []string
+	}{
+		{"a short connection without the pattern", []string{"GET / HTTP/1.1\r\nHost: files.example\r\n\r\n"}},
+		{"a connection that sent nothing", nil},
+		{"a window already read when it filled", []string{"hunter2-9f3a1c", strings.Repeat("x", windowSize)}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var matched matching
+			stream := NewStream(StreamOptions{
+				Signatures: signatures(t, `a token = "hunter2-9f3a1c"`),
+				Matched:    matched.report,
+			}, nil)
+			for _, chunk := range tc.sends {
+				stream.Up([]byte(chunk))
+			}
+			before := len(matched.seen)
+
+			stream.Close()
+
+			if len(matched.seen) != before {
+				t.Errorf("the close made %d reports, want none", len(matched.seen)-before)
+			}
+			if stream.win != nil {
+				t.Error("the window is still held after the close")
+			}
+		})
+	}
+}
+
+// A connection stopped on its name is over, and its close must not read what the stop left
+// unread.
+func TestAConnectionStoppedOnItsNameReportsNoPatternAtClose(t *testing.T) {
+	counted := counting{stops: true}
+	var matched matching
+	stream := NewStream(StreamOptions{
+		Signatures: signatures(t, `a token = "hunter2-9f3a1c"`),
+		Matched:    matched.report,
+	}, counted.report)
+
+	stream.Up([]byte("GET /?q=hunter2-9f3a1c HTTP/1.1\r\nHost: stopped.example\r\n\r\n"))
+	stream.Close()
+
+	if len(matched.seen) != 0 {
+		t.Error("the patterns were read at the close of a connection that had been stopped")
 	}
 }

@@ -3,6 +3,8 @@
 package forward
 
 import (
+	"bytes"
+	"container/list"
 	"context"
 	"errors"
 	"fmt"
@@ -14,6 +16,7 @@ import (
 	"time"
 
 	"github.com/sellitus/app-tail/internal/config"
+	"github.com/sellitus/app-tail/internal/netpipe"
 	"github.com/sellitus/app-tail/internal/udpsock"
 )
 
@@ -40,13 +43,27 @@ const maxUDPSessions = 2048
 // udpDialTimeout bounds how long a new client's first datagram waits for the upstream
 // socket. It is shorter than the TCP dial it used to share, because there is no
 // handshake here to be slow -- what is being waited on is a socket and, on the tailnet
-// side, a path to the peer. The wait happens on the read loop, so it is also how long
-// every other client's traffic stops while one new client is set up.
+// side, a path to the peer. The wait is the new client's alone: its datagrams are held
+// while it lasts, and every other client's keep moving.
 const udpDialTimeout = 5 * time.Second
+
+// maxUDPDials bounds how many new clients one forward is setting up at once.
+//
+// Each is a dial in flight on its own goroutine, started by a single datagram from a source
+// address nobody has verified. maxUDPSessions bounds the clients that got through; this
+// bounds the ones that have not yet, which a target that is slow to reach or not there at
+// all would otherwise let pile up for a whole udpDialTimeout each.
+const maxUDPDials = 64
+
+// maxHeldBytes bounds what is kept for one client while its session is being set up. It is
+// one datagram of the largest size there is: room for the handful a client sends before it
+// hears back, and no more than that for a client that never will.
+const maxHeldBytes = 64 << 10
 
 // session is one client's UDP conversation: the socket carrying its datagrams
 // upstream and the last time traffic was seen in either direction.
 type session struct {
+	key      string
 	upstream net.Conn
 	client   net.Addr
 	lastSeen atomic.Int64 // unix nanos
@@ -56,7 +73,25 @@ type session struct {
 	// clock tie; two places in the order never do.
 	seen atomic.Uint64
 
+	// place is the session's seat in the forward's eviction order and placed is the reading
+	// of seen it was seated by. Both belong to udpForward.mu.
+	place  *list.Element
+	placed uint64
+
+	// watch reads what the client sends, and is nil when nothing is reading. A datagram is
+	// offered from whichever goroutine is carrying it while the janitor may be closing the
+	// session, so the two are kept apart.
+	watchMu sync.Mutex
+	watch   netpipe.Stream
+	shut    bool
+
 	closeOnce sync.Once
+}
+
+// held is what one client has sent while its session is being set up.
+type held struct {
+	queue [][]byte
+	bytes int
 }
 
 // activity numbers every moment traffic is seen on any session, in order.
@@ -71,9 +106,28 @@ func (s *session) idleFor(now time.Time) time.Duration {
 	return now.Sub(time.Unix(0, s.lastSeen.Load()))
 }
 
+// stops offers one datagram from the client to whatever is reading the flow, and reports
+// whether it must not be carried.
+func (s *session) stops(datagram []byte) bool {
+	s.watchMu.Lock()
+	defer s.watchMu.Unlock()
+	if s.watch == nil || s.shut {
+		return false
+	}
+	return s.watch.Up(datagram)
+}
+
 // close is safe to call from both the janitor and shutdown.
 func (s *session) close() {
-	s.closeOnce.Do(func() { s.upstream.Close() })
+	s.closeOnce.Do(func() {
+		s.upstream.Close()
+		s.watchMu.Lock()
+		defer s.watchMu.Unlock()
+		s.shut = true
+		if s.watch != nil {
+			s.watch.Close()
+		}
+	})
 }
 
 // udpForward holds the live state of one UDP forward.
@@ -93,6 +147,15 @@ type udpForward struct {
 
 	mu       sync.Mutex
 	sessions map[string]*session
+	// order seats every session by the traffic it had carried when it was seated, least
+	// recent at the front. It is brought up to date only when the table is full, so a
+	// datagram costs a session nothing here.
+	order list.List
+	// opening holds, per client, what has arrived while that client's session is dialed.
+	opening map[string]*held
+	// openers counts the dials in flight, which the read loop waits out before it drains
+	// the table: a session one of them added afterwards would never be closed.
+	openers sync.WaitGroup
 }
 
 // listenLocalUDP binds this machine's own socket for a forward, in the one state a read loop
@@ -163,10 +226,13 @@ func (m *Manager) startUDP(ctx context.Context, e *entry, wg *sync.WaitGroup) (i
 }
 
 // readLoop reads datagrams from the listening socket and routes each to its
-// client's session, creating one on first sight.
+// client's session, starting one on first sight.
 func (u *udpForward) readLoop(ctx context.Context) {
+	opening, stopOpening := context.WithCancel(ctx)
 	// Sessions outlive individual datagrams but not the forward.
 	defer u.closeAllSessions()
+	defer u.openers.Wait()
+	defer stopOpening()
 
 	buf := make([]byte, u.bufSize)
 	for {
@@ -189,31 +255,132 @@ func (u *udpForward) readLoop(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-
-		s, isNew, err := u.sessionFor(ctx, client)
-		if err != nil {
-			// A dial failure (usually an ACL denial) must not create a broken
-			// session; drop the datagram and surface why.
-			u.mgr.logger.Warn("udp forward could not reach its target",
-				"id", u.fwd.ID, "target", u.fwd.Target, "error", err)
-			u.entry.counters.noteError(dialFailure(u.fwd.Target, err))
-			continue
-		}
-		if isNew {
-			// A fresh session means the dial got through, clearing any prior error.
-			u.entry.counters.noteSuccess()
-		}
-
-		written, err := s.upstream.Write(buf[:n])
-		if err != nil {
-			u.mgr.logger.Debug("udp upstream write failed", "id", u.fwd.ID, "error", err)
-			u.entry.counters.noteError(fmt.Errorf("write to %s: %w", u.fwd.Target, err))
-			u.removeSession(client.String(), s)
-			continue
-		}
-		u.entry.counters.bytesUp.Add(int64(written))
-		s.touch()
+		u.route(opening, client, buf[:n])
 	}
+}
+
+// route hands one datagram to its client's session. A client seen for the first time has
+// its session dialed on a goroutine of its own, and what it sends meanwhile is held for it:
+// this is the one loop every client's traffic passes through, and a target that is slow to
+// reach must not stop it.
+func (u *udpForward) route(ctx context.Context, client net.Addr, datagram []byte) {
+	key := client.String()
+
+	u.mu.Lock()
+	if waiting, ok := u.opening[key]; ok {
+		fits := waiting.bytes+len(datagram) <= maxHeldBytes
+		if fits {
+			waiting.queue = append(waiting.queue, bytes.Clone(datagram))
+			waiting.bytes += len(datagram)
+		}
+		u.mu.Unlock()
+		if !fits {
+			u.mgr.logger.Warn("udp forward dropped a datagram from a client still being set up",
+				"id", u.fwd.ID, "client", key, "heldBytes", maxHeldBytes)
+			u.entry.counters.noteError(fmt.Errorf(
+				"a datagram from %s was dropped: %d bytes were already waiting for its session to open",
+				key, maxHeldBytes))
+		}
+		return
+	}
+	if s, ok := u.sessions[key]; ok {
+		u.mu.Unlock()
+		u.send(s, datagram)
+		return
+	}
+	if len(u.opening) >= maxUDPDials {
+		u.mu.Unlock()
+		u.mgr.logger.Warn("udp forward turned a new client away",
+			"id", u.fwd.ID, "client", key, "beingSetUp", maxUDPDials)
+		u.entry.counters.noteError(fmt.Errorf(
+			"%d clients are already being set up, so a new one (%s) was turned away",
+			maxUDPDials, key))
+		return
+	}
+	waiting := &held{queue: [][]byte{bytes.Clone(datagram)}, bytes: len(datagram)}
+	if u.opening == nil {
+		u.opening = make(map[string]*held)
+	}
+	u.opening[key] = waiting
+	u.openers.Add(1)
+	u.mu.Unlock()
+
+	go u.open(ctx, client, waiting)
+}
+
+// open dials one new client's session and then sends what the client sent while it waited,
+// in the order it arrived.
+//
+// The client stays in u.opening until nothing is left waiting, and is taken out under the
+// same lock route queues under. Its datagrams are therefore sent from here or from the read
+// loop and never from both, which is what keeps them in order.
+func (u *udpForward) open(ctx context.Context, client net.Addr, waiting *held) {
+	defer u.openers.Done()
+	key := client.String()
+	settle := func() {
+		u.mu.Lock()
+		delete(u.opening, key)
+		u.mu.Unlock()
+	}
+
+	s, isNew, err := u.sessionFor(ctx, client)
+	if err != nil {
+		settle()
+		if ctx.Err() != nil {
+			return
+		}
+		// A dial failure (usually an ACL denial) must not create a broken
+		// session; drop what was held and surface why.
+		u.mgr.logger.Warn("udp forward could not reach its target",
+			"id", u.fwd.ID, "target", u.fwd.Target, "error", err)
+		u.entry.counters.noteError(dialFailure(u.fwd.Target, err))
+		return
+	}
+	if isNew {
+		// A fresh session means the dial got through, clearing any prior error.
+		u.entry.counters.noteSuccess()
+	}
+
+	for {
+		u.mu.Lock()
+		queue := waiting.queue
+		waiting.queue, waiting.bytes = nil, 0
+		if len(queue) == 0 {
+			delete(u.opening, key)
+			u.mu.Unlock()
+			return
+		}
+		u.mu.Unlock()
+
+		for _, datagram := range queue {
+			if !u.send(s, datagram) {
+				settle()
+				return
+			}
+		}
+	}
+}
+
+// send carries one datagram from a client to the target, and reports whether the session
+// is still there to carry the next.
+func (u *udpForward) send(s *session, datagram []byte) bool {
+	if s.stops(datagram) {
+		// Whatever read the datagram has already reported what it found.
+		u.mgr.logger.Debug("udp forward stopped a client on what it sent",
+			"id", u.fwd.ID, "client", s.key)
+		u.removeSession(s.key, s)
+		return false
+	}
+	written, err := s.upstream.Write(datagram)
+	if err != nil {
+		u.mgr.logger.Debug("udp upstream write failed", "id", u.fwd.ID, "error", err)
+		u.entry.counters.noteError(fmt.Errorf("write to %s: %w", u.fwd.Target, err))
+		u.removeSession(s.key, s)
+		return false
+	}
+	u.entry.counters.bytesUp.Add(int64(written))
+	s.touch()
+	return true
 }
 
 // sessionFor returns the session for a client address, dialing a dedicated
@@ -235,20 +402,23 @@ func (u *udpForward) sessionFor(ctx context.Context, client net.Addr) (*session,
 		return nil, false, err
 	}
 
+	s := &session{key: key, upstream: upstream, client: client, watch: u.mgr.watchesDatagrams(u.fwd)}
+
 	u.mu.Lock()
 	// Another datagram from the same client may have won the race.
 	if existing, ok := u.sessions[key]; ok {
 		u.mu.Unlock()
-		upstream.Close()
+		s.close()
 		return existing, false, nil
 	}
 	// Enforced here rather than before the dial, because here is where the table
 	// actually grows and the lock is already held: checking earlier would let several
 	// dials in flight at once push it past the cap between the check and the insert.
 	evicted := u.makeRoomLocked()
-	s := &session{upstream: upstream, client: client}
 	s.touch()
 	u.sessions[key] = s
+	s.placed = s.seen.Load()
+	s.place = u.order.PushBack(s)
 	u.entry.counters.activeUDP.Store(int32(len(u.sessions)))
 	u.mu.Unlock()
 
@@ -274,21 +444,57 @@ func (u *udpForward) sessionFor(ctx context.Context, client net.Addr) (*session,
 // ranked by the order traffic was seen rather than by the clock: a flood fills the table
 // within one tick of a coarse clock, and on the clock's reading the real client would tie
 // with the made-up ones and go by chance.
+//
+// The order is kept as a list that is corrected only here. The session at the front was the
+// least recent when it was seated; if it has carried traffic since, it is seated again by
+// what it has carried now and the next one is looked at. A session that sent once and never
+// again is found at the front untouched, so a flood pays for one session per eviction where
+// ranking the whole table would pay for all of them.
 func (u *udpForward) makeRoomLocked() *session {
 	if u.maxSessions <= 0 || len(u.sessions) < u.maxSessions {
 		return nil
 	}
-	var (
-		oldestKey string
-		oldest    *session
-	)
-	for key, s := range u.sessions {
-		if oldest == nil || s.seen.Load() < oldest.seen.Load() {
-			oldestKey, oldest = key, s
+	for front := u.order.Front(); front != nil; front = u.order.Front() {
+		s := front.Value.(*session)
+		if u.sessions[s.key] != s {
+			u.unseatLocked(s)
+			continue
+		}
+		if seen := s.seen.Load(); seen != s.placed {
+			s.placed = seen
+			u.reseatLocked(s)
+			continue
+		}
+		u.forgetLocked(s)
+		return s
+	}
+	return nil
+}
+
+// reseatLocked moves a session back to where its placed reading belongs. The caller must
+// hold u.mu.
+func (u *udpForward) reseatLocked(s *session) {
+	for at := u.order.Back(); at != nil && at != s.place; at = at.Prev() {
+		if at.Value.(*session).placed <= s.placed {
+			u.order.MoveAfter(s.place, at)
+			return
 		}
 	}
-	delete(u.sessions, oldestKey)
-	return oldest
+}
+
+// unseatLocked takes a session out of the eviction order. The caller must hold u.mu.
+func (u *udpForward) unseatLocked(s *session) {
+	if s.place != nil {
+		u.order.Remove(s.place)
+		s.place = nil
+	}
+}
+
+// forgetLocked takes a session out of the table and the eviction order, leaving its socket
+// for the caller to close outside the lock. The caller must hold u.mu.
+func (u *udpForward) forgetLocked(s *session) {
+	delete(u.sessions, s.key)
+	u.unseatLocked(s)
 }
 
 // dialUpstream opens the socket carrying one client's datagrams to the target.
@@ -364,9 +570,9 @@ func (u *udpForward) evictIdle(now time.Time) {
 	var stale []*session
 
 	u.mu.Lock()
-	for key, s := range u.sessions {
+	for _, s := range u.sessions {
 		if s.idleFor(now) >= u.timeout {
-			delete(u.sessions, key)
+			u.forgetLocked(s)
 			stale = append(stale, s)
 		}
 	}
@@ -392,6 +598,7 @@ func (u *udpForward) removeSession(key string, s *session) {
 		delete(u.sessions, key)
 		u.entry.counters.activeUDP.Store(int32(len(u.sessions)))
 	}
+	u.unseatLocked(s)
 	u.mu.Unlock()
 
 	// Closed either way: this session is finished with its socket whether or not the
@@ -404,8 +611,8 @@ func (u *udpForward) removeSession(key string, s *session) {
 func (u *udpForward) closeAllSessions() {
 	u.mu.Lock()
 	stale := make([]*session, 0, len(u.sessions))
-	for key, s := range u.sessions {
-		delete(u.sessions, key)
+	for _, s := range u.sessions {
+		u.forgetLocked(s)
 		stale = append(stale, s)
 	}
 	u.entry.counters.activeUDP.Store(0)

@@ -245,3 +245,52 @@ func TestOnlyAScannersRefusalCountsAsTransient(t *testing.T) {
 		}
 	}
 }
+
+// Anybody may make a folder under ProgramData before an elevated app-tail first does, and
+// whoever made it owns it. A folder found already there is used only when the administrators
+// own it; one a standard account made is refused, and named along with its owner.
+func TestAStateFolderSomebodyElseMadeIsRefused(t *testing.T) {
+	dir := t.TempDir()
+	onAMachineWhere(t, theUsualFolders, map[string]string{strings.ToLower(dir): `MACHINE\mallory`})
+
+	err := trustedExistingDir(dir)
+
+	if err == nil {
+		t.Fatal("a folder a standard account made was accepted for what app-tail does with administrator rights")
+	}
+	for _, want := range []string{dir, `MACHINE\mallory`} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal is %q, want it to name %s", err, want)
+		}
+	}
+}
+
+func TestAStateFolderTheAdministratorsMadeIsUsed(t *testing.T) {
+	dir := t.TempDir()
+	onAMachineWhere(t, theUsualFolders, map[string]string{strings.ToLower(dir): ""})
+
+	if err := trustedExistingDir(dir); err != nil {
+		t.Errorf("a folder the administrators own was refused: %v", err)
+	}
+}
+
+// The refusal has to stop the whole call: narrowing a folder somebody else made would hand it
+// to the administrators with whatever its maker left inside.
+func TestMakingAStateFolderStopsAtOneSomebodyElseMade(t *testing.T) {
+	dir := t.TempDir()
+	onAMachineWhere(t, theUsualFolders, map[string]string{strings.ToLower(dir): `MACHINE\mallory`})
+
+	if err := MakeRestrictedDir(dir, 0o700); err == nil || !strings.Contains(err.Error(), `MACHINE\mallory`) {
+		t.Errorf("making a state folder out of one a standard account made gave %v, want a refusal naming its owner", err)
+	}
+}
+
+// A folder whose owner cannot be read is not one to act on either.
+func TestAStateFolderWhoseOwnerCannotBeReadIsRefused(t *testing.T) {
+	dir := t.TempDir()
+	onAMachineWhere(t, theUsualFolders, map[string]string{})
+
+	if err := trustedExistingDir(dir); err == nil {
+		t.Error("a folder whose owner could not be read was accepted")
+	}
+}

@@ -11,6 +11,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -96,7 +97,7 @@ func TestEachDatagramCrossesWholeAndIsCountedOnce(t *testing.T) {
 	dst := &scriptedConn{}
 	sent := &counter{}
 
-	relayDatagrams(src, dst, sent.add, nil)
+	relayDatagrams(src, dst, sent.add, nil, newFlowQuiet(udpIdle, udpSlack))
 
 	got := dst.got()
 	if len(got) != 2 || string(got[0]) != "one" || string(got[1]) != "two more" {
@@ -120,7 +121,7 @@ func TestAFlowThatCannotBeGivenAnIdleTimeIsEndedRatherThanHeldOpen(t *testing.T)
 
 	done := make(chan error, 1)
 	go func() {
-		done <- relayDatagrams(src, dst, nil, nil)
+		done <- relayDatagrams(src, dst, nil, nil, newFlowQuiet(udpIdle, udpSlack))
 	}()
 	var err error
 	select {
@@ -147,7 +148,7 @@ func TestADatagramThatCouldNotBeDeliveredEndsTheFlowAndIsNotCounted(t *testing.T
 	dst := &scriptedConn{writeErr: errors.New("the other side has gone")}
 	sent := &counter{}
 
-	err := relayDatagrams(src, dst, sent.add, nil)
+	err := relayDatagrams(src, dst, sent.add, nil, newFlowQuiet(udpIdle, udpSlack))
 
 	if !errors.Is(err, dst.writeErr) {
 		t.Errorf("the relay ended with %v, want the reason the other side gave", err)
@@ -172,7 +173,7 @@ func TestOnlyWhatTheOtherSideTookIsCounted(t *testing.T) {
 	dst := &shortConn{scriptedConn: scriptedConn{}, takes: 4}
 	sent := &counter{}
 
-	relayDatagrams(src, dst, sent.add, nil)
+	relayDatagrams(src, dst, sent.add, nil, newFlowQuiet(udpIdle, udpSlack))
 
 	if total, _ := sent.read(); total != 4 {
 		t.Errorf("counted %d bytes, want the 4 the other side took", total)
@@ -191,4 +192,91 @@ func (c *shortConn) Write(buf []byte) (int, error) {
 		return c.takes, io.ErrShortWrite
 	}
 	return len(buf), nil
+}
+
+// pipedFlow is a datagram flow being carried between a program and the far side of its
+// network, with both ends in the test's hands.
+type pipedFlow struct {
+	program net.Conn
+	far     net.Conn
+	ended   chan error
+	done    chan struct{}
+}
+
+func pipeFlow(t *testing.T, idle, slack time.Duration) *pipedFlow {
+	t.Helper()
+	program, local := net.Pipe()
+	upstream, far := net.Pipe()
+	flow := &pipedFlow{program: program, far: far, ended: make(chan error, 2), done: make(chan struct{})}
+	t.Cleanup(func() {
+		closeQuietly(program, local, upstream, far)
+		<-flow.done
+	})
+	go func() {
+		defer close(flow.done)
+		relayBothWays(local, upstream, nil, nil, nil, idle, slack, func(err error) { flow.ended <- err })
+	}()
+	return flow
+}
+
+// A flow that speaks one way only is still a flow in use. Timed a direction at a time, the
+// side that never answers runs out its idle time while the other is mid-sentence, and the
+// program's next datagram goes to a flow that has just been torn down.
+func TestAFlowCarryingTrafficOneWayOnlyIsNotEndedForTheSilenceOfTheOther(t *testing.T) {
+	const idle, slack = 150 * time.Millisecond, 50 * time.Millisecond
+	flow := pipeFlow(t, idle, slack)
+
+	received := make(chan int, 1)
+	go func() {
+		buf := make([]byte, 64)
+		count := 0
+		for {
+			if _, err := flow.far.Read(buf); err != nil {
+				received <- count
+				return
+			}
+			count++
+		}
+	}()
+
+	// Several idle times over, with never more than a fraction of one between datagrams.
+	const sends = 40
+	for i := range sends {
+		if err := flow.program.SetWriteDeadline(time.Now().Add(2 * time.Second)); err != nil {
+			t.Fatalf("set a write deadline: %v", err)
+		}
+		if _, err := flow.program.Write([]byte("report")); err != nil {
+			t.Fatalf("datagram %d of %d could not be sent, %v after the flow began: %v",
+				i+1, sends, time.Duration(i)*idle/6, err)
+		}
+		select {
+		case err := <-flow.ended:
+			t.Fatalf("the flow was ended (%v) while datagram %d of %d was crossing it", err, i+1, sends)
+		case <-time.After(idle / 6):
+		}
+	}
+
+	closeQuietly(flow.program, flow.far)
+	if got := <-received; got != sends {
+		t.Errorf("the far side received %d datagrams, want all %d", got, sends)
+	}
+}
+
+// The idle time still ends a flow nothing is crossing, and not before it has run.
+func TestAFlowQuietBothWaysIsEndedOnceItsIdleTimeHasRun(t *testing.T) {
+	const idle, slack = 150 * time.Millisecond, 50 * time.Millisecond
+	flow := pipeFlow(t, idle, slack)
+	began := time.Now()
+
+	select {
+	case err := <-flow.ended:
+		if !errors.Is(err, os.ErrDeadlineExceeded) {
+			t.Errorf("the quiet flow ended with %v, want its idle time running out", err)
+		}
+		if quiet := time.Since(began); quiet < idle {
+			t.Errorf("the flow was ended after %v of quiet, before its idle time of %v", quiet, idle)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a flow nothing crossed was still being carried long past its idle time")
+	}
 }

@@ -621,3 +621,123 @@ func TestAQueryThatCarriesNoQuestionIsRefusedBeforeAnythingIsDialled(t *testing.
 		t.Errorf("the resolver was dialled %d times for a query that was never readable", got)
 	}
 }
+
+// What a resolver reached over HTTPS answers with is held to what one reached any other way
+// is: a DNS message, a response, to the question that was asked, no longer than a DNS message
+// can be, and from the address that was asked rather than wherever it pointed next.
+func TestTheDoHUpstreamTakesOnlyAnAnswerToWhatItAsked(t *testing.T) {
+	answerTo := func(w http.ResponseWriter, r *http.Request, name string) []byte {
+		query, err := io.ReadAll(io.LimitReader(r.Body, maxStreamAnswer))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return nil
+		}
+		q, err := parseQuestion(query)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return nil
+		}
+		if name != "" {
+			q.Name = name
+		}
+		return buildResponse(q, dnsmessage.RCodeSuccess, false, []dnsmessage.Resource{
+			addressRecord(q, netip.MustParseAddr("203.0.113.40")),
+		}, nil)
+	}
+	tests := []struct {
+		name    string
+		handler func(w http.ResponseWriter, r *http.Request)
+		wantErr string
+	}{
+		{
+			name: "an answer to the question",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", dohMediaType+"; charset=binary")
+				w.Write(answerTo(w, r, ""))
+			},
+		},
+		{
+			name: "an answer longer than a DNS message can be",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", dohMediaType)
+				answer := answerTo(w, r, "")
+				w.Write(append(answer, make([]byte, maxStreamAnswer+1-len(answer))...))
+			},
+			wantErr: "more than",
+		},
+		{
+			name: "an answer that does not say what it is",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				// A nil value is what stops the server working one out from the bytes.
+				w.Header()["Content-Type"] = nil
+				w.Write(answerTo(w, r, ""))
+			},
+			wantErr: "not a DNS message",
+		},
+		{
+			name: "an answer to some other question",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", dohMediaType)
+				w.Write(answerTo(w, r, "elsewhere.example"))
+			},
+			wantErr: "not an answer to",
+		},
+		{
+			name: "the query sent straight back",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", dohMediaType)
+				io.Copy(w, io.LimitReader(r.Body, maxStreamAnswer))
+			},
+			wantErr: "not an answer to",
+		},
+		{
+			name: "a redirect to somewhere that would answer",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/moved" {
+					w.Header().Set("Content-Type", dohMediaType)
+					w.Write(answerTo(w, r, ""))
+					return
+				}
+				http.Redirect(w, r, "/moved", http.StatusTemporaryRedirect)
+			},
+			wantErr: "307",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cert, pool := testCert(t, "doh.invalid")
+			srv := httptest.NewUnstartedServer(http.HandlerFunc(tc.handler))
+			srv.TLS = &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}
+			srv.StartTLS()
+			defer srv.Close()
+
+			addr := netip.MustParseAddrPort(strings.TrimPrefix(srv.URL, "https://"))
+			up, err := newDoHUpstream(dnsprofiles.Upstream{
+				Protocol: dnsprofiles.DoH, Text: "https://doh.invalid/dns-query", URL: "https://doh.invalid/dns-query",
+				Addr: addr, Port: addr.Port(), Host: "doh.invalid", ServerName: "doh.invalid",
+			}, &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12})
+			if err != nil {
+				t.Fatalf("newDoHUpstream: %v", err)
+			}
+			defer up.Close()
+
+			resp, err := up.Exchange(context.Background(), buildQuery(t, "example.com", dnsmessage.TypeA), false)
+
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("Exchange: %v", err)
+				}
+				if addrs := addressesIn(t, resp); len(addrs) != 1 || addrs[0] != netip.MustParseAddr("203.0.113.40") {
+					t.Errorf("answer = %v", addrs)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("Exchange accepted it and answered %d bytes", len(resp))
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("error = %q, want it to say %q", err, tc.wantErr)
+			}
+		})
+	}
+}

@@ -563,6 +563,45 @@ func TestAResolverSetupTheMachineRefusesComesBackToTheCaller(t *testing.T) {
 	}
 }
 
+// A network that publishes "com" as its search domain does not get every name under it:
+// the forwarder is handed only the domains a network can own, and the card lists only those
+// as going to the network, while still showing what the network published.
+func TestAPublishedPublicSuffixIsNotRoutedOrListedAsLocal(t *testing.T) {
+	agent := newQuietAgent(t, func(tsnode.Options) NodeController { return newFakeNode() })
+	agent.inspect = func(context.Context, func(string, ...any)) tsnode.InterfaceReport {
+		return tsnode.InterfaceReport{Platform: "darwin", Supported: true, Privileged: true}
+	}
+	rights := &fakeResolverRights{base: tsnode.BaseResolvers{
+		Nameservers:   []netip.Addr{netip.MustParseAddr("192.168.6.1")},
+		SearchDomains: []string{"lan", "com"},
+	}}
+	runner := newResolverRunner(t, rights)
+	runner.apply(context.Background(), resolverTarget(t))
+	agent.mu.Lock()
+	agent.systemDNS = runner
+	agent.mu.Unlock()
+	if _, err := agent.store.Update(func(c *config.Config) error {
+		c.Settings.SystemDNSEnabled = true
+		c.Settings.SystemDNSProfile = "cloudflare"
+		return nil
+	}); err != nil {
+		t.Fatalf("seed settings: %v", err)
+	}
+
+	routed := runner.fwd.Config().Rules.SearchDomains
+	view := agent.systemDNSView(context.Background())
+
+	if !slices.Equal(routed, []string{"lan"}) {
+		t.Errorf("search domains the forwarder routes by = %v, want only lan", routed)
+	}
+	if !slices.Contains(view.LocalSuffixes, "lan") || slices.Contains(view.LocalSuffixes, "com") {
+		t.Errorf("local suffixes = %v, want lan and not com", view.LocalSuffixes)
+	}
+	if view.Base == nil || !slices.Equal(view.Base.SearchDomains, []string{"lan", "com"}) {
+		t.Errorf("base = %+v, want everything the network published shown as published", view.Base)
+	}
+}
+
 // A profile that stops answering is what a captive portal looks like from here, and it is
 // the one failure the card cannot show as an error: the override is installed and working,
 // and the resolvers behind it are not. Saying nothing leaves the user with a machine that

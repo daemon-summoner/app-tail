@@ -124,12 +124,13 @@ with `go:embed`, so `ui/dist` must exist before `go build` will work. The script
 above handle that. A bare `go build` in a clean checkout will fail until you have
 run `./build_install.sh` or `./test.sh` at least once.
 
-On macOS `./build_install.sh` asks for your password before it builds anything, and
-installs the [privileged helper](modes.md#macos-and-linux-a-small-root-helper) as a copy of
-the binary it just built. The helper is that binary running as root, so without this a
-rebuild leaves the two on different code. Declining the password skips that step and
-says so; the build itself is unaffected. Run it in a terminal: a non-interactive
-caller is never prompted.
+On macOS `./build_install.sh` builds first, then asks for your password at the one step
+that needs it, and installs the [privileged helper](modes.md#macos-and-linux-a-small-root-helper)
+as a copy of the binary it just built. The helper is that binary running as root, so without
+this a rebuild leaves the two on different code. The binary is first copied into a folder
+only root can write and installed from there, so nothing can swap it between the password
+and the install. Declining the password skips that step and says so; the build itself is
+unaffected. Run it in a terminal: a non-interactive caller is never prompted.
 
 A from-source build on macOS, Windows or Linux includes the tray. `go build` needs
 a C toolchain for it on macOS only; elsewhere it cross-compiles with cgo disabled.

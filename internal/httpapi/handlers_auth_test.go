@@ -425,6 +425,57 @@ func TestARefusedRequestIsLoggedWithoutItsToken(t *testing.T) {
 	}
 }
 
+// Any local process can provoke a refusal as fast as it can connect, and each one written
+// out is a line of the agent's log it chose. The refusals are all still answered; only the
+// writing is bounded, and what was left out is counted on the next line that is written.
+func TestAFloodOfRefusedRequestsDoesNotFloodTheLog(t *testing.T) {
+	var logs bytes.Buffer
+	h := newHarness(t)
+	h.server.logger = slog.New(slog.NewTextHandler(&logs, nil))
+	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	h.server.now = func() time.Time { return now }
+
+	const flood = 200
+	for range flood {
+		requireSignInRefusal(t, h.doAs(t, "Bearer atk1_not-the-right-secret", http.MethodGet, "/api/forwards", ""))
+	}
+	if got := strings.Count(logs.String(), "refused an api request"); got != refusalLogBurst {
+		t.Fatalf("%d refusals in one moment wrote %d log lines, want %d", flood, got, refusalLogBurst)
+	}
+
+	logs.Reset()
+	now = now.Add(refusalLogWindow)
+	requireSignInRefusal(t, h.doAs(t, "", http.MethodGet, "/api/status", ""))
+	line := logs.String()
+	if strings.Count(line, "refused an api request") != 1 || !strings.Contains(line, "/api/status") {
+		t.Fatalf("a refusal after the quiet period was not logged: %q", line)
+	}
+	if want := fmt.Sprintf("unlogged=%d", flood-refusalLogBurst); !strings.Contains(line, want) {
+		t.Errorf("the line does not count the refusals left out before it (%s): %q", want, line)
+	}
+}
+
+// The bound is on a burst, not on refusals as such: ones that arrive apart are each written.
+func TestRefusedRequestsThatArriveApartAreEachLogged(t *testing.T) {
+	var logs bytes.Buffer
+	h := newHarness(t)
+	h.server.logger = slog.New(slog.NewTextHandler(&logs, nil))
+	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	h.server.now = func() time.Time { return now }
+
+	const apart = 3 * refusalLogBurst
+	for range apart {
+		requireSignInRefusal(t, h.doAs(t, "", http.MethodGet, "/api/forwards", ""))
+		now = now.Add(refusalLogWindow)
+	}
+	if got := strings.Count(logs.String(), "refused an api request"); got != apart {
+		t.Errorf("%d refusals a full period apart wrote %d log lines", apart, got)
+	}
+	if strings.Contains(logs.String(), "unlogged=") {
+		t.Errorf("a line counts refusals left out when none were: %q", logs.String())
+	}
+}
+
 func TestNewRefusesToBuildAServerWithoutAuthentication(t *testing.T) {
 	defer func() {
 		rec := recover()

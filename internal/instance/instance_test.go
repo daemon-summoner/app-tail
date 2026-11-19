@@ -4,7 +4,9 @@ package instance
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -18,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sellitus/app-tail/internal/apiauth"
 	"github.com/sellitus/app-tail/internal/config"
 	"github.com/sellitus/app-tail/internal/fileown"
 )
@@ -427,19 +430,62 @@ func TestAClaimWithNoConfigDocumentIsRefused(t *testing.T) {
 	}
 }
 
+// agentAPI stands in for the running agent's loopback API: it answers the identity check with
+// answer, and takes a request only with the token stored beside configPath. It returns the
+// address to record, the requests it took, and every credential it was shown.
+func agentAPI(t *testing.T, configPath string, answer func(keys *apiauth.Keys, nonce, authority string) string, status int) (addr string, taken, shown *[]string) {
+	t.Helper()
+	keys, err := apiauth.LoadOrCreate(filepath.Dir(configPath))
+	if err != nil {
+		t.Fatalf("store an API token beside the config: %v", err)
+	}
+	var mu sync.Mutex
+	taken, shown = new([]string), new([]string)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		if r.Method == http.MethodPost && r.URL.Path == "/api/auth/hello" {
+			var hello struct {
+				Nonce string `json:"nonce"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&hello); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			local, _ := r.Context().Value(http.LocalAddrContextKey).(net.Addr)
+			if err := json.NewEncoder(w).Encode(map[string]string{"proof": answer(keys, hello.Nonce, local.String())}); err != nil {
+				t.Errorf("answer the identity check: %v", err)
+			}
+			return
+		}
+		bearer, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if ok {
+			*shown = append(*shown, bearer)
+		}
+		if !ok || !keys.CheckBearer(bearer) {
+			http.Error(w, "no", http.StatusUnauthorized)
+			return
+		}
+		*taken = append(*taken, r.Method+" "+r.URL.Path)
+		w.WriteHeader(status)
+	}))
+	t.Cleanup(server.Close)
+	return strings.TrimPrefix(server.URL, "http://"), taken, shown
+}
+
+// honestProof is the answer the agent holding the token gives.
+func honestProof(keys *apiauth.Keys, nonce, authority string) string {
+	return keys.Proof(nonce, authority)
+}
+
 // The loopback API is how a takeover reaches an agent no signal can: a Windows process, or
 // one another account started. It has to reach the address that agent recorded, since the
-// configured port is not necessarily the one it got.
+// configured port is not necessarily the one it got, and it has to carry the token: the agent
+// answers nothing on that API without it.
 func TestTheRunningAgentIsAskedToQuitThroughTheAddressItRecorded(t *testing.T) {
-	var asked []string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		asked = append(asked, r.Method+" "+r.URL.Path)
-		w.WriteHeader(http.StatusAccepted)
-	}))
-	defer server.Close()
-
 	configPath := configIn(t)
-	if err := config.WriteDashboardAddr(configPath, strings.TrimPrefix(server.URL, "http://")); err != nil {
+	addr, taken, _ := agentAPI(t, configPath, honestProof, http.StatusAccepted)
+	if err := config.WriteDashboardAddr(configPath, addr); err != nil {
 		t.Fatalf("record the dashboard address: %v", err)
 	}
 
@@ -447,21 +493,60 @@ func TestTheRunningAgentIsAskedToQuitThroughTheAddressItRecorded(t *testing.T) {
 		t.Fatalf("ask the running agent to quit: %v", err)
 	}
 
-	if len(asked) != 1 || asked[0] != "POST /api/quit" {
-		t.Errorf("the running agent was asked %v, want a single POST /api/quit", asked)
+	if len(*taken) != 1 || (*taken)[0] != "POST /api/quit" {
+		t.Errorf("the running agent was asked %v, want a single POST /api/quit", *taken)
+	}
+}
+
+// The address record outlives a crashed agent, and whatever binds that port next would be
+// handed the token along with the ask. A listener that cannot show it holds the token is
+// shown nothing.
+func TestAListenerThatCannotProveItIsTheAgentIsNotShownTheToken(t *testing.T) {
+	configPath := configIn(t)
+	stranger := func(*apiauth.Keys, string, string) string { return "not-a-proof" }
+	addr, taken, shown := agentAPI(t, configPath, stranger, http.StatusAccepted)
+	if err := config.WriteDashboardAddr(configPath, addr); err != nil {
+		t.Fatalf("record the dashboard address: %v", err)
+	}
+
+	err := askAgentToQuit(t.Context(), configPath)
+
+	if err == nil {
+		t.Fatal("a listener that is not the agent was reported as an agent that agreed to stop")
+	}
+	if len(*shown) != 0 || len(*taken) != 0 {
+		t.Errorf("a listener that failed the identity check was shown %d credential(s) and took %v", len(*shown), *taken)
+	}
+}
+
+// Without the token there is nothing the agent would answer, so the ask fails before anything
+// is sent rather than reading a refusal as a handover.
+func TestAnAgentWhoseTokenCannotBeReadIsNotAsked(t *testing.T) {
+	configPath := configIn(t)
+	addr, taken, _ := agentAPI(t, configPath, honestProof, http.StatusAccepted)
+	if err := config.WriteDashboardAddr(configPath, addr); err != nil {
+		t.Fatalf("record the dashboard address: %v", err)
+	}
+	if err := apiauth.Remove(filepath.Dir(configPath)); err != nil {
+		t.Fatalf("remove the API token: %v", err)
+	}
+
+	err := askAgentToQuit(t.Context(), configPath)
+
+	if err == nil {
+		t.Fatal("an agent whose token is gone was reported as asked")
+	}
+	if len(*taken) != 0 {
+		t.Errorf("the agent took %v from a caller with no token", *taken)
 	}
 }
 
 // An agent that refuses -- one already shutting down, or a build without the route -- must not
 // read as a successful handover, or the takeover would end its wait and start beside it.
 func TestAnAgentThatRefusesToQuitIsNotTreatedAsStopped(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		http.Error(w, "no", http.StatusServiceUnavailable)
-	}))
-	defer server.Close()
-
 	configPath := configIn(t)
-	if err := config.WriteDashboardAddr(configPath, strings.TrimPrefix(server.URL, "http://")); err != nil {
+	addr, _, _ := agentAPI(t, configPath, honestProof, http.StatusServiceUnavailable)
+	if err := config.WriteDashboardAddr(configPath, addr); err != nil {
 		t.Fatalf("record the dashboard address: %v", err)
 	}
 
@@ -486,6 +571,9 @@ func TestAnAgentThatIsNoLongerListeningIsReportedRatherThanTreatedAsStopped(t *t
 	configPath := configIn(t)
 	if err := config.WriteDashboardAddr(configPath, addr); err != nil {
 		t.Fatalf("record the dashboard address: %v", err)
+	}
+	if _, err := apiauth.LoadOrCreate(filepath.Dir(configPath)); err != nil {
+		t.Fatalf("store an API token beside the config: %v", err)
 	}
 
 	err := askAgentToQuit(t.Context(), configPath)

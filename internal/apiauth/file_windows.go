@@ -6,21 +6,14 @@ package apiauth
 
 import (
 	"fmt"
-	"io/fs"
 	"os"
+
+	"github.com/sellitus/app-tail/internal/fileown"
 )
 
-// Windows has no O_NOFOLLOW. The token directory sits under the account's own profile,
-// which other accounts cannot write, and the file carries an access list naming this
-// account alone, written by fileown before the token is.
-const openNoFollow = 0
-
-func isSymlinkRefusal(error) bool { return false }
-
-// untrustedFile has nothing to read from mode bits here: access is the access list
-// fileown writes when the token is created.
-func untrustedFile(fs.FileInfo) string { return "" }
-
+// checkDir refuses a token directory another account owns or can put a file into, since
+// whoever can write it can put a file of their own at the token's path. The mode bits say
+// nothing here, so the answer is the directory's owner and its access list.
 func checkDir(dir string) error {
 	info, err := os.Stat(dir)
 	if err != nil {
@@ -28,6 +21,9 @@ func checkDir(dir string) error {
 	}
 	if !info.IsDir() {
 		return fmt.Errorf("the API token belongs in %s, which is not a directory", dir)
+	}
+	if err := fileown.PrivateDir(dir); err != nil {
+		return fmt.Errorf("refusing to keep the API token there: %w", err)
 	}
 	return nil
 }

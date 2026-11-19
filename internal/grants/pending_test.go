@@ -212,3 +212,20 @@ func TestTheApprovalCommandQuotesEveryValueForTheShellItIsPastedInto(t *testing.
 		t.Errorf("CommandLine with nothing to approve = %q, want empty", got)
 	}
 }
+
+// PowerShell ends a single-quoted string at any of the typographic single quotes as well
+// as the ASCII one, so each has to be doubled or the rest of the value runs as a command.
+// A POSIX shell gives them no meaning, and doubling one there would change the value.
+func TestTheWindowsApprovalCommandDoublesEveryQuotePowerShellHonors(t *testing.T) {
+	for _, quote := range []string{"'", "\u2018", "\u2019", "\u201a", "\u201b"} {
+		need := Need{Kind: KindDNSDomain, Value: "it" + quote + ";reboot;" + quote + "s.example.", Reason: "r"}
+		want := "app-tail tun grant '--dns-domain=it" + quote + quote + ";reboot;" + quote + quote + "s.example.'"
+		if got := CommandLine("windows", []Need{need}); got != want {
+			t.Errorf("CommandLine(windows) with %U = %q, want %q", []rune(quote)[0], got, want)
+		}
+	}
+	curly := Need{Kind: KindDNSDomain, Value: "it\u2019s.example.", Reason: "r"}
+	if got, want := CommandLine("linux", []Need{curly}), "sudo app-tail tun grant '--dns-domain=it\u2019s.example.'"; got != want {
+		t.Errorf("CommandLine(linux) = %q, want %q", got, want)
+	}
+}

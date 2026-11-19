@@ -100,6 +100,35 @@ func TestAConnectionCarryingAPatternIsStoppedWhileTheModeIsPrevent(t *testing.T)
 	}
 }
 
+// A connection that ended before its window filled is read when it closes, by which time
+// every byte of it has been delivered. Recording that as a refusal would tell the user
+// something was stopped that was not, so it is a detection whatever the mode.
+func TestAPatternFoundAsAConnectionClosesIsADetectionEvenWhileTheModeIsPrevent(t *testing.T) {
+	at := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
+	runner, events := newTestIPS(t, &at, nil, nil)
+	runner.handshake.Store(true)
+	runner.prevent.Store(true)
+	runner.compileSignatures(manualSourceName, tokenEntry)
+
+	watch := runner.Watch(handshakeFlow)
+	if watch.Up([]byte("POST /upload HTTP/1.1\r\nHost: files.example\r\n\r\npayload=" + theToken)) {
+		t.Fatal("a connection was stopped before its window had been read")
+	}
+	watch.Close()
+
+	matched, refused, _ := runner.totals()
+	if matched != 1 || refused != 0 {
+		t.Fatalf("totals = %d matched, %d refused; want the match counted and no refusal claimed",
+			matched, refused)
+	}
+	if len(*events) != 1 || (*events)[0].code != telemetry.CodeIPSDetected {
+		t.Fatalf("events = %+v, want one %s", *events, telemetry.CodeIPSDetected)
+	}
+	if recent := runner.recentMatches(); len(recent) != 1 || recent[0].Refused {
+		t.Errorf("the ring holds %+v, want one detection that does not say it was refused", recent)
+	}
+}
+
 // A datagram flow carries the same patterns to the same place. It is a second set of switches
 // read in a second place, so a pattern honoured on connections and not on datagrams is a user
 // watching for a value that leaves over UDP unwatched.

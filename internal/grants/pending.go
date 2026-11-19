@@ -194,16 +194,23 @@ func CommandLine(goos string, needs []Need) string {
 		return ""
 	}
 	args := append([]string{"app-tail"}, GrantArgs(needs)...)
+	if goos != "windows" {
+		args = append([]string{"sudo"}, args...)
+	}
+	return quotedCommand(goos, args)
+}
+
+// quotedCommand joins args into one line for the shell a person on goos pastes it into.
+func quotedCommand(goos string, args []string) string {
 	quote := posixQuote
 	if goos == "windows" {
 		quote = windowsQuote
-	} else {
-		args = append([]string{"sudo"}, args...)
 	}
+	quoted := make([]string, len(args))
 	for i, arg := range args {
-		args[i] = quote(arg)
+		quoted[i] = quote(arg)
 	}
-	return strings.Join(args, " ")
+	return strings.Join(quoted, " ")
 }
 
 // shellSafe is true when every character of s means itself to a POSIX shell and to PowerShell.
@@ -229,6 +236,17 @@ func posixQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
+// powerShellQuotes doubles each character PowerShell ends a single-quoted string at. It
+// reads the typographic single quotes as it reads the ASCII one, so a value carrying one
+// undoubled closes the string and the rest of it runs.
+var powerShellQuotes = strings.NewReplacer(
+	"'", "''",
+	"\u2018", "\u2018\u2018",
+	"\u2019", "\u2019\u2019",
+	"\u201a", "\u201a\u201a",
+	"\u201b", "\u201b\u201b",
+)
+
 // windowsQuote quotes an argument for PowerShell, the shell the Windows command is given for.
 // Its single quotes are literal, doubling any inside; its double quotes would still run a
 // $(...) a server name carried.
@@ -236,5 +254,5 @@ func windowsQuote(s string) string {
 	if shellSafe(s) {
 		return s
 	}
-	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+	return "'" + powerShellQuotes.Replace(s) + "'"
 }

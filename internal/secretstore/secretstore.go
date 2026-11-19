@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -57,12 +58,24 @@ func Path(configPath string) string {
 // Any other failure names the file and is never an empty result: starting without the
 // credentials a file that is present was meant to supply would look like a sign-out, and
 // the next write would make it one.
+//
+// A file another account could have written or can read is refused as it stands, with the
+// command that repairs it, and is not narrowed here: the credentials in it may already have
+// been copied, which is for the person to know before they are used again.
 func Load(path string) (Secrets, error) {
-	sealed, err := os.ReadFile(path)
+	f, err := fileown.OpenPrivate(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, err
 		}
+		var loose *fileown.NotPrivateError
+		if errors.As(err, &loose) {
+			return nil, fmt.Errorf("refusing the stored credentials: %w", err)
+		}
+		return nil, fmt.Errorf("read the stored credentials in %s: %w", path, err)
+	}
+	sealed, err := io.ReadAll(f)
+	if err = errors.Join(err, f.Close()); err != nil {
 		return nil, fmt.Errorf("read the stored credentials in %s: %w", path, err)
 	}
 	plain, err := unseal(sealed)

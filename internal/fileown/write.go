@@ -56,8 +56,35 @@ func WriteRestricted(path string, data []byte, mode fs.FileMode) error {
 // The narrowing is repeated on every write rather than done once at creation: the mode bits
 // carry it everywhere but Windows, where the directory this lives under can be created by any
 // account before app-tail ever runs elevated.
+//
+// A directory that was already there is checked before it is narrowed, for the same reason:
+// narrowing changes who may write it from then on and nothing about what its maker left in it.
 func MakeRestrictedDir(dir string, mode fs.FileMode) error {
-	if err := os.MkdirAll(dir, mode); err != nil {
+	return makeRestrictedDir(dir, mode, trustedExistingDir)
+}
+
+// makeRestrictedDir is MakeRestrictedDir with the check on a directory it did not make passed
+// in, so a suite can reach the refusal on a machine where the real check never refuses.
+func makeRestrictedDir(dir string, mode fs.FileMode, trusted func(dir string) error) error {
+	if err := os.MkdirAll(filepath.Dir(dir), mode); err != nil {
+		return fmt.Errorf("make %s: %w", dir, err)
+	}
+	// Made on its own rather than with the rest of the path, because this is the one call that
+	// says whether the directory was already there.
+	switch err := os.Mkdir(dir, mode); {
+	case err == nil:
+	case errors.Is(err, fs.ErrExist):
+		info, statErr := os.Stat(dir)
+		if statErr != nil {
+			return fmt.Errorf("make %s: %w", dir, statErr)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("make %s: something that is not a directory is already there", dir)
+		}
+		if err := trusted(dir); err != nil {
+			return err
+		}
+	default:
 		return fmt.Errorf("make %s: %w", dir, err)
 	}
 	if err := RestrictTreeToAdministrators(dir); err != nil {

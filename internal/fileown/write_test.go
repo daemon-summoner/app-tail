@@ -3,6 +3,7 @@
 package fileown
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -133,6 +134,65 @@ func TestADirectoryThatCannotBeMadeIsReported(t *testing.T) {
 		t.Fatal("a directory that could not be made was reported as made")
 	}
 	if !strings.Contains(err.Error(), blocking) {
+		t.Errorf("the reason given is %q, want it to name the path that is in the way", err)
+	}
+}
+
+// A directory that was already there was made by somebody, and narrowing it afterwards takes
+// back nothing they left in it. So the check on it is asked before anything is narrowed, and
+// its refusal is the answer.
+func TestADirectoryThatWasAlreadyThereIsCheckedBeforeItIsUsed(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "state")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatalf("make the directory somebody else got to first: %v", err)
+	}
+	refusal := errors.New("this folder belongs to somebody else")
+	var asked []string
+
+	err := makeRestrictedDir(dir, 0o700, func(dir string) error {
+		asked = append(asked, dir)
+		return refusal
+	})
+
+	if !errors.Is(err, refusal) {
+		t.Errorf("a directory that failed its check gave %v, want the refusal", err)
+	}
+	if len(asked) != 1 || asked[0] != dir {
+		t.Errorf("the check was asked about %v, want only %s", asked, dir)
+	}
+}
+
+// A directory this call made itself has nobody else's hand in it, so there is nothing to ask.
+func TestADirectoryMadeHereIsNotCheckedAgainstWhoeverMadeIt(t *testing.T) {
+	fileowntest.RequireCanHandToAdministrators(t)
+	dir := filepath.Join(t.TempDir(), "app-tail", "state")
+
+	err := makeRestrictedDir(dir, 0o700, func(dir string) error {
+		t.Errorf("the check was asked about %s, which did not exist until now", dir)
+		return nil
+	})
+
+	if err != nil {
+		t.Fatalf("make the directory: %v", err)
+	}
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		t.Errorf("the directory was not made: %v", err)
+	}
+}
+
+// A file where the directory belongs is not a directory that was already there.
+func TestAFileWhereTheDirectoryBelongsIsReported(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state")
+	if err := os.WriteFile(path, []byte("not a directory"), 0o600); err != nil {
+		t.Fatalf("put a file where the directory would go: %v", err)
+	}
+
+	err := MakeRestrictedDir(path, 0o700)
+
+	if err == nil {
+		t.Fatal("a file was accepted as the directory for a record")
+	}
+	if !strings.Contains(err.Error(), path) {
 		t.Errorf("the reason given is %q, want it to name the path that is in the way", err)
 	}
 }

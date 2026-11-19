@@ -65,7 +65,8 @@ own domain to 127.0.0.1 and reading your pending login URL, so it is not somethi
 to relax.
 
 For the same reason, reach the dashboard by a name the guard recognises:
-`127.0.0.1`, `[::1]`, `localhost`, or any `*.localhost` label. Abbreviated loopback
+`127.0.0.1`, `[::1]` or `localhost`. Other `*.localhost` labels are refused, since a
+browser may send them to DNS rather than to loopback. Abbreviated loopback
 literals (`127.1`, `2130706433`, `0177.0.0.1`) are refused, because accepting them
 would mean resolving the Host header, and a resolver is exactly what an attacker
 controls here.

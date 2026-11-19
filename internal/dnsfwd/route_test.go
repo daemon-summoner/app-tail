@@ -309,3 +309,38 @@ func TestSuffixRulesIgnoreCaseAndSurroundingDots(t *testing.T) {
 		t.Errorf("Route = %s, want local -- a suffix typed with dots and capitals is the same rule", got.Target)
 	}
 }
+
+// A search domain is whatever the network's DHCP server said it was, and a network that
+// publishes "com" would otherwise claim every name under it: sent to that network's
+// resolver, and past every blocklist on the way.
+func TestASearchDomainThatIsAPublicSuffixClaimsNothing(t *testing.T) {
+	rules := Rules{
+		SearchDomains: []string{"com", ".NET.", "co.uk", "io", "lan", "home.arpa", "corp.example.com"},
+		HaveLocal:     true,
+		Block:         blocking("ads.example.com", "tracker.example.co.uk", "ads.printer.lan"),
+	}
+	tests := []struct {
+		name  string
+		query string
+		want  Target
+		about string
+	}{
+		{"a blocked name under a published top-level domain", "ads.example.com", Blocked, "the network does not own com"},
+		{"an ordinary name under it", "example.com", ToProfile, "the network does not own com"},
+		{"a name under a dotted, capitalised one", "example.net", ToProfile, "the spelling changes nothing"},
+		{"a blocked name under a two-label public suffix", "tracker.example.co.uk", Blocked, "the network does not own co.uk"},
+		{"a name under a newer top-level domain", "example.io", ToProfile, "the network does not own io"},
+		{"a name under a private single label", "printer.lan", ToLocal, "nobody on the internet owns lan"},
+		{"a listed name under a private single label", "ads.printer.lan", ToLocal, "a local name beats a downloaded list"},
+		{"a name under the home network zone", "nas.home.arpa", ToLocal, "RFC 8375 gives it to the home network"},
+		{"a name under a registered domain", "wiki.corp.example.com", ToLocal, "the network's own domain"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Route(question(tc.query, dnsmessage.TypeA), rules)
+			if got.Target != tc.want {
+				t.Errorf("Route(%s) = %s (%s), want %s -- %s", tc.query, got.Target, got.Reason, tc.want, tc.about)
+			}
+		})
+	}
+}

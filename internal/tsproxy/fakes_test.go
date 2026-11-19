@@ -364,7 +364,7 @@ func newProxyBoxWith(opts Options, overrides ...func(*config.ProxyInstance)) *pr
 	if opts.Logger == nil {
 		opts.Logger = quietLogger()
 	}
-	if fake, ok := opts.Network.(*fakeNetwork); ok && opts.DialDirect == nil {
+	if fake, ok := opts.Network.(*fakeNetwork); ok && opts.DialDirect == nil && opts.DialGuard == nil {
 		opts.DialDirect = fake.dialDirect
 	}
 	held := config.ProxyInstance{

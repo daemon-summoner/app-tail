@@ -113,7 +113,10 @@ func plistStrings(t *testing.T, doc string) []string {
 }
 
 func TestSystemdUnitStartsAtLoginAndRestartsOnFailure(t *testing.T) {
-	got := testManager("/home/u", "run", "--headless").systemdUnit()
+	got, err := testManager("/home/u", "run", "--headless").systemdUnit()
+	if err != nil {
+		t.Fatalf("render the unit: %v", err)
+	}
 
 	want := `[Unit]
 Description=app-tail userspace Tailscale port forwarder
@@ -152,10 +155,60 @@ func TestSystemdExecLineQuotesArgumentsThatWouldOtherwiseSplit(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := escapeExec(tc.args); got != tc.want {
+			got, err := escapeExec(tc.args)
+			if err != nil {
+				t.Fatalf("escapeExec(%q): %v", tc.args, err)
+			}
+			if got != tc.want {
 				t.Errorf("escapeExec(%q) = %q, want %q", tc.args, got, tc.want)
 			}
 		})
+	}
+}
+
+// systemd reads a percent sign as the start of a specifier and a dollar sign as the start of
+// a variable, so a path holding either starts a different command from the one installed:
+// "%h" becomes the home directory, and "$HOME" whatever the service's environment says. The
+// program's own path is the exception for the dollar sign, which systemd never expands there.
+func TestSystemdExecLineKeepsPercentAndDollarSignsLiteral(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"specifier in an argument", []string{"/usr/bin/app-tail", "--config=/srv/%h/app.json"}, "/usr/bin/app-tail --config=/srv/%%h/app.json"},
+		{"specifier in the program", []string{"/opt/100%/app-tail"}, "/opt/100%%/app-tail"},
+		{"variable in an argument", []string{"/usr/bin/app-tail", "--config=/srv/$HOME/app.json"}, "/usr/bin/app-tail --config=/srv/$$HOME/app.json"},
+		{"braced variable in a quoted argument", []string{"/usr/bin/app-tail", "/srv/${X} y"}, `/usr/bin/app-tail "/srv/$${X} y"`},
+		{"dollar sign in the program", []string{"/opt/pay$/app-tail", "run"}, "/opt/pay$/app-tail run"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := escapeExec(tc.args)
+			if err != nil {
+				t.Fatalf("escapeExec(%q): %v", tc.args, err)
+			}
+			if got != tc.want {
+				t.Errorf("escapeExec(%q) = %q, want %q", tc.args, got, tc.want)
+			}
+		})
+	}
+}
+
+// A unit file is read a line at a time, so a line break inside an argument ends ExecStart and
+// begins a directive of the argument's choosing. No quoting carries one, so the unit is not
+// written at all.
+func TestSystemdUnitIsRefusedForAnArgumentHoldingAControlCharacter(t *testing.T) {
+	for _, arg := range []string{"/srv/a\nExecStartPre=/bin/sh -c id", "/srv/a\rb", "/srv/a\x00b", "/srv/a\x1bb", "/srv/a\x7fb"} {
+		m := testManager("/home/u", "run", "--config="+arg)
+		unit, err := m.systemdUnit()
+		if err == nil {
+			t.Errorf("an argument holding %q was written into a unit:\n%s", arg, unit)
+		}
+	}
+
+	if _, err := testManager("/home/u", "run", "--config=/srv/plain").systemdUnit(); err != nil {
+		t.Errorf("an ordinary argument was refused: %v", err)
 	}
 }
 

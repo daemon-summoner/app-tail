@@ -131,6 +131,10 @@ func Build(p Params) (Plan, error) {
 		taken[port] = true
 	}
 
+	// Nothing leaves taken while a plan is built, so every number below the lowest free
+	// one stays taken and the search for the next never has to go back over them.
+	lowest := p.PortBase
+
 	plan := Plan{Forwards: make([]config.Forward, 0, p.Max)}
 	for _, peer := range p.Peers {
 		// A peer with no stable ID could not be given a port that survives a restart,
@@ -147,7 +151,7 @@ func Build(p Params) (Plan, error) {
 			key := allocationKey(p.TunnelID, peer.ID, port)
 			local, ok := allocations[key]
 			if !ok {
-				assigned, err := p.Allocate(nextPreferred(p.PortBase, taken))
+				assigned, err := p.Allocate(nextPreferred(&lowest, taken))
 				if err != nil {
 					return Plan{}, fmt.Errorf("allocate a local port for %s:%d: %w", peer.Label(), port, err)
 				}
@@ -174,10 +178,13 @@ func Build(p Params) (Plan, error) {
 // the base that this plan has not already handed out. Without it every allocation in one
 // pass would ask for the same base port and the allocator would walk the same run of
 // taken numbers again for each.
-func nextPreferred(base int, taken map[int]bool) int {
-	for port := base; port <= 65535; port++ {
-		if !taken[port] {
-			return port
+//
+// lowest is where the search stands and is moved up to the number answered, which is left
+// there until something takes it: an allocator is free to hand out a different one.
+func nextPreferred(lowest *int, taken map[int]bool) int {
+	for ; *lowest <= 65535; *lowest++ {
+		if !taken[*lowest] {
+			return *lowest
 		}
 	}
 	// Nothing free above the base; the allocator falls back to an OS-assigned port.

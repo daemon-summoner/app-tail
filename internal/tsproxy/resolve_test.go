@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sellitus/app-tail/internal/access"
 	"github.com/sellitus/app-tail/internal/config"
 	"github.com/sellitus/app-tail/internal/tunnel"
 )
@@ -335,6 +336,176 @@ func TestHowLongAnAnswerIsKept(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := cacheFor(tc.ttl); got != tc.want {
 				t.Errorf("a %v record is kept for %v, want %v", tc.ttl, got, tc.want)
+			}
+		})
+	}
+}
+
+// remembered is how many answers the set is holding on to.
+func remembered(s *Set) int {
+	s.resolved.mu.Lock()
+	defer s.resolved.mu.Unlock()
+	return len(s.resolved.names)
+}
+
+// resolveAll puts each name to the set's resolver path, as a connection to it would.
+func resolveAll(t *testing.T, s *Set, hosts ...string) {
+	t.Helper()
+	for _, host := range hosts {
+		if _, served, err := s.privateAddr(context.Background(), host); err != nil || !served {
+			t.Fatalf("resolve %s: served = %v, err = %v", host, served, err)
+		}
+	}
+}
+
+// Any program handed the proxy chooses the names it asks about, so what is remembered
+// about them cannot be allowed to grow with the asking.
+func TestWhatIsRememberedAboutNamesIsBounded(t *testing.T) {
+	tn := newFakeNetwork(t)
+	_, box := privateResolving(t, tn, newTestClock())
+
+	var last string
+	for i := range maxResolvedNames + 50 {
+		last = "host-" + strconv.Itoa(i) + ".corp.example.com"
+		tn.resolveAs(last, netip.MustParseAddr("100.64.0.9"))
+		resolveAll(t, box.set, last)
+	}
+	if got := remembered(box.set); got > maxResolvedNames {
+		t.Errorf("%d answers are remembered, want no more than %d", got, maxResolvedNames)
+	}
+
+	// Making room must not cost the answer that was just given.
+	asked := tn.lookupCount()
+	resolveAll(t, box.set, last)
+	if got := tn.lookupCount(); got != asked {
+		t.Errorf("the newest name was asked about again (%d lookups, was %d) after room was made", got, asked)
+	}
+}
+
+// An answer nobody asks about again would otherwise be held for as long as the proxy runs.
+func TestAnswersPastTheirLifetimeAreForgotten(t *testing.T) {
+	tn := newFakeNetwork(t)
+	clock := newTestClock()
+	_, box := privateResolving(t, tn, clock)
+
+	stale := []string{"a.corp.example.com", "b.corp.example.com", "c.corp.example.com"}
+	for _, host := range append(stale, "live.corp.example.com", "new.corp.example.com") {
+		tn.resolveAs(host, netip.MustParseAddr("100.64.0.9"))
+	}
+	resolveAll(t, box.set, stale...)
+
+	// The fake resolver's records live a minute. One more is remembered just inside that,
+	// so it is still live when the others are not.
+	clock.advance(50 * time.Second)
+	resolveAll(t, box.set, "live.corp.example.com")
+	clock.advance(20 * time.Second)
+	resolveAll(t, box.set, "new.corp.example.com")
+
+	if got := remembered(box.set); got != 2 {
+		t.Errorf("%d answers are remembered, want the 2 still inside their lifetime", got)
+	}
+	asked := tn.lookupCount()
+	resolveAll(t, box.set, "live.corp.example.com")
+	if got := tn.lookupCount(); got != asked {
+		t.Error("an answer still inside its lifetime was forgotten with the expired ones")
+	}
+}
+
+// ruledBy is privateResolving with the rules the test is about in place of the usual grants.
+func ruledBy(t *testing.T, tn *fakeNetwork, rules ...access.Rule) *Instance {
+	t.Helper()
+	_, box := privateResolving(t, tn, newTestClock())
+	box.edit(func(held *config.ProxyInstance) { held.Rules = rules })
+	box.mustApply(t)
+	return box.instance()
+}
+
+// A name no rule could carry wherever it resolved is refused on the name. Resolving it
+// first would put a question about every name any program asks for to the networks' own
+// resolvers, including the names this proxy was told to have nothing to do with.
+func TestANameNoRuleCouldCarryIsRefusedWithoutBeingResolved(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		rules  []access.Rule
+		reason string
+	}{
+		{
+			name:   "no allow rule covers the name",
+			rules:  []access.Rule{{ID: "ar_corp", Action: access.Allow, Host: "**.corp.example.com"}},
+			reason: "no rule covers this",
+		},
+		{
+			name: "a deny on the name alone comes first",
+			rules: []access.Rule{
+				{ID: "ar_block", Action: access.Deny, Host: "**.example.org"},
+				{ID: "ar_all", Action: access.Allow, Tunnel: officeTunnel},
+			},
+			reason: "rule 1",
+		},
+		{
+			name:   "the only allow is for another transport",
+			rules:  []access.Rule{{ID: "ar_udp", Action: access.Allow, Protocol: access.UDP}},
+			reason: "no rule covers this",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tn := newFakeNetwork(t)
+			private := standIn(t, tn, true)
+			tn.resolveAs("files.example.org", private.Addr())
+			p := ruledBy(t, tn, tc.rules...)
+
+			_, err := p.dial(context.Background(), "tcp", "files.example.org:"+port(private))
+			if !errors.Is(err, ErrRefused) {
+				t.Fatalf("dial = %v, want the rules' refusal", err)
+			}
+			if !strings.Contains(err.Error(), tc.reason) {
+				t.Errorf("err = %v, want it to say %q", err, tc.reason)
+			}
+			if got := tn.lookupCount(); got != 0 {
+				t.Errorf("the resolvers were asked %d times about a name no rule could carry", got)
+			}
+			if got := tn.dialledAddresses(); len(got) != 0 {
+				t.Errorf("dialled %v, want nothing", got)
+			}
+			if got := p.Status().Counters.Refused; got != 1 {
+				t.Errorf("Refused = %d, want the refusal counted", got)
+			}
+		})
+	}
+}
+
+// The name alone refuses only what is certain. A rule that also depends on where the name
+// resolves to cannot be judged before it has, in either direction.
+func TestANameARuleMightCarryIsStillResolved(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		rules []access.Rule
+	}{
+		{
+			name:  "an allow written about the name",
+			rules: []access.Rule{{ID: "ar_corp", Action: access.Allow, Host: "**.corp.example.com"}},
+		},
+		{
+			name: "a deny that also names addresses the name is not at",
+			rules: []access.Rule{
+				{ID: "ar_block", Action: access.Deny, Host: "**.corp.example.com", CIDR: netip.MustParsePrefix("10.0.0.0/8")},
+				{ID: "ar_all", Action: access.Allow, Tunnel: officeTunnel},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tn := newFakeNetwork(t)
+			private := standIn(t, tn, true)
+			tn.resolveAs("db.corp.example.com", private.Addr())
+			p := ruledBy(t, tn, tc.rules...)
+
+			conn, err := p.dial(context.Background(), "tcp", "db.corp.example.com:"+port(private))
+			if err != nil {
+				t.Fatalf("a name a rule carries was not reached: %v", err)
+			}
+			conn.Close()
+			if got := tn.lookupCount(); got != 1 {
+				t.Errorf("the resolvers were asked %d times, want once", got)
 			}
 		})
 	}

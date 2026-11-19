@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -314,5 +315,56 @@ func TestAnUnsupportedProtocolOrDirectionFailsWithItsReason(t *testing.T) {
 				t.Errorf("error = %q, want it to contain %q", st.Error, tc.want)
 			}
 		})
+	}
+}
+
+// Running out of descriptors is a moment, not a broken listener: other connections end and
+// the room comes back. Giving up on the first such accept leaves a forward that is down for
+// good because the machine was busy for a second.
+func TestAnAcceptThatRanOutOfRoomIsRetriedAndSaysWhy(t *testing.T) {
+	for _, cause := range errsOutOfRoom {
+		t.Run(cause.Error(), func(t *testing.T) {
+			// Wrapped the way net's accept path hands it over.
+			failure := &net.OpError{Op: "accept", Net: "tcp", Err: os.NewSyscallError("accept", cause)}
+			ln := newScriptedListener(failure, failure)
+			_, e, _ := runAcceptLoop(t, ln)
+
+			waitFor(t, 5*time.Second, "the loop to ask again after both failures", func() bool {
+				return ln.acceptCount() == 3
+			})
+			st := e.counters.snapshot("f_accept")
+			if st.State != StateRunning {
+				t.Fatalf("running out of room moved the forward to %q (%s); it must stay %q",
+					st.State, st.Error, StateRunning)
+			}
+			// It is refusing connections while this lasts, and has to say so.
+			if !strings.Contains(st.Error, cause.Error()) {
+				t.Errorf("the forward reports %q, want it to name %q", st.Error, cause)
+			}
+		})
+	}
+}
+
+// While the room is gone every accept fails at once, and asking at a fixed short interval
+// is a steady load on a machine that is already out of something. Each wait is longer than
+// the last.
+func TestRepeatedAcceptFailuresAreRetriedMoreAndMoreSlowly(t *testing.T) {
+	script := make([]error, 200)
+	for i := range script {
+		script[i] = errsOutOfRoom[0]
+	}
+	ln := newScriptedListener(script...)
+	runAcceptLoop(t, ln)
+
+	// At the starting delay alone this window holds thirteen attempts. Doubling from it
+	// holds four: at 0, 1, 3 and 7 delays in.
+	time.Sleep(12 * acceptRetryDelay)
+	got := ln.acceptCount()
+	if got < 3 {
+		t.Fatalf("the loop made %d accept attempts, want it to keep retrying", got)
+	}
+	if got > 6 {
+		t.Errorf("the loop made %d accept attempts in %s, want the waits between them to grow",
+			got, 12*acceptRetryDelay)
 	}
 }

@@ -2,8 +2,8 @@
 
 package inspect
 
-// The question inside a DNS message. The hazard here is not a wrong name but a walk that
-// never ends, so the pointer cases matter more than the happy one.
+// The question inside a DNS message. The hazards are a walk that never ends and a name written
+// so that it is not read at all, so the pointer cases matter more than the happy one.
 
 import (
 	"strings"
@@ -52,13 +52,44 @@ func TestAnAnswerIsNotReadAsAQuestion(t *testing.T) {
 	}
 }
 
-// The corpus. A pointer is the one that matters: following one is how a parser is made to
-// walk a message forever, and no bound on the window would stop it because the walk never
-// leaves the window.
-func TestAMalformedMessageIsNeverReadAsAName(t *testing.T) {
-	pointer := append(dnsQuery("looped.example")[:dnsHeaderSize], 0xc0, 0x0c)
-	pointer = append(pointer, 0x00, 0x01, 0x00, 0x01)
+// A resolver answers a query whose name is written with a compression pointer, so a name
+// behind one is a name asked for, and it has to reach the rules like any other.
+func TestANameWrittenWithACompressionPointerIsStillRead(t *testing.T) {
+	header := []byte{0x12, 0x34, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 
+	// The whole name sits behind the type and class, and the question is only a pointer to it.
+	whole := append(append([]byte{}, header...), 0xc0, 0x12, 0x00, 0x01, 0x00, 0x01)
+	whole = append(whole, 7, 'b', 'l', 'o', 'c', 'k', 'e', 'd', 7, 'e', 'x', 'a', 'm', 'p', 'l', 'e', 0x00)
+
+	// The first label is written in place and the rest is pointed at.
+	tail := append(append([]byte{}, header...), 3, 'a', 'd', 's', 0xc0, 0x16, 0x00, 0x01, 0x00, 0x01)
+	tail = append(tail, 7, 'e', 'x', 'a', 'm', 'p', 'l', 'e', 4, 't', 'e', 's', 't', 0x00)
+
+	cases := []struct {
+		name string
+		msg  []byte
+		want string
+	}{
+		{"the whole name pointed at", whole, "blocked.example"},
+		{"the end of the name pointed at", tail, "ads.example.test"},
+	}
+	for _, held := range cases {
+		t.Run(held.name, func(t *testing.T) {
+			got, ok := DNSQuestion(held.msg)
+			if !ok {
+				t.Fatal("a query a resolver would answer was not read as a question")
+			}
+			if got != held.want {
+				t.Errorf("the name is %q, want %q", got, held.want)
+			}
+		})
+	}
+}
+
+// The corpus. A pointer is the one that matters: following one without a bound is how a
+// parser is made to walk a message forever, and no bound on the window would stop it because
+// the walk never leaves the window.
+func TestAMalformedMessageIsNeverReadAsAName(t *testing.T) {
 	selfPointer := []byte{
 		0x12, 0x34, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 		0xc0, 0x0c, // a pointer to itself
@@ -77,12 +108,33 @@ func TestAMalformedMessageIsNeverReadAsAName(t *testing.T) {
 	overLabel = append(overLabel, strings.Repeat("b", maxDNSLabel+1)...)
 	overLabel = append(overLabel, 0x00, 0x00, 0x01, 0x00, 0x01)
 
+	// Two labels that point at each other, so the walk passes real bytes on every lap.
+	loop := []byte{
+		0x12, 0x34, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		1, 'a', 0xc0, 0x14,
+		0x00, 0x01, 0x00, 0x01,
+		1, 'b', 0xc0, 0x0c,
+	}
+
+	outside := []byte{
+		0x12, 0x34, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0xc0, 0x40, // past the end of the message
+		0x00, 0x01, 0x00, 0x01,
+	}
+
+	halfPointer := []byte{
+		0x12, 0x34, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0xc0,
+	}
+
 	cases := []struct {
 		name string
 		msg  []byte
 	}{
-		{"a compression pointer in the question", pointer},
 		{"a pointer to itself", selfPointer},
+		{"labels that point at each other", loop},
+		{"a pointer past the end of the message", outside},
+		{"half a pointer", halfPointer},
 		{"a name past two hundred and fifty-five bytes", long},
 		{"a label past sixty-three bytes", overLabel},
 		{"a header and nothing else", dnsQuery("truncated.example")[:dnsHeaderSize]},
